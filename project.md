@@ -379,7 +379,9 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 | `tight-verify.ts` | 緊框可衍生性驗證 |
 | `compose-grail.ts`、`compose-grail-extb.ts`、`grail-box-sweep.ts`、`grail-fit-compare.ts`、`grail-fit-optimize.ts`、`grail-readings.ts`、`identify-reference.ts`、`probe-grail-tree.ts`、`probe-chaicoi.ts` | holy grail 的一系列實驗（含「參考圖到底是哪個既有字」的定案） |
 | `band-compare.ts`、`verify-box-map.ts`、`verify-compose.ts`、`verify-zhu.ts`、`v2-explore.ts`、`ar-probe.ts`、`inspect-tree.ts`、`inspect-variants.ts` | 組字引擎行為的驗證與實驗 |
-| `_q2.ts` | 沒有開頭註解，用途不確定（疑似臨時檔） |
+
+> `_q2.ts` 已於 2026-10-13 刪除：它是一次性的改名腳本（把 `search-slot.ts` 的
+> `SlotPos` 改成 `SlotZone`），改名早就套用進原始碼，檔頭又沒有註解。
 
 ### 8.8 診斷探針 `probe-*.ts`（**問題已經解決，留著當證據**）
 
@@ -450,7 +452,7 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 5. **`out/` 裡有一批無主的產物**：`browser-mockup.*`、`demo-cases.*`、`sheet-a/b.*`、`lib-nodict.bin*`、`shot-editor.png`、`cm-shot-*.png`。在 `tools/` 裡找不到產生它們的程式（可能是早期版本的工具已刪除）。不確定是否還需要保留。
 6. **`ascii` 名稱的歷史遺留**：字庫檔叫 `lib-cjk-all`，但頁面檔案叫 `glyph-browser.html`、產生器叫 `build-glyph-browser.ts`、頁面程式碼叫 `glyph-browser-page.js`，而**畫面上的標題是「Unicode漢字集」**。三套名字指同一個東西。
 7. **根目錄 `nul`**：這是 Windows 的 NUL 裝置被列出來，不是真的檔案。若真有工具想寫入 `nul`，那是無效的。
-8. **`tools/_q2.ts` 沒有開頭註解**，用途不確定；從內容看像是 `q.ts` 的臨時變體。
+8. **`tools/_q2.ts` 已刪除**（2026-10-13）：它是一次性改名腳本（`search-slot.ts` 的 `SlotPos` → `SlotZone`），改名已套用，檔案本身沒有用途。
 
 ---
 
