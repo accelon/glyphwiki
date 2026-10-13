@@ -21,15 +21,19 @@
 
 同一個專案的另一種寫法（沿著〈煉丹篇〉的寓言線）：
 
-- [`煉丹篇.md`](煉丹篇.md)　——把資料清乾淨、煉出字庫與自動組字
-- [`托付篇.md`](托付篇.md)　——交棒
-- [`試丹記.md`](試丹記.md)　——驗證：閘門要能失敗、兩把秤互相對帳
+這三篇放在 [`novel/`](novel/)：
+
+- [`novel/煉丹篇.md`](novel/煉丹篇.md)　——把資料清乾淨、煉出字庫與自動組字
+- [`novel/托付篇.md`](novel/托付篇.md)　——交棒
+- [`novel/試丹篇.md`](novel/試丹篇.md)　——驗證：閘門要能失敗、兩把秤互相對帳
 
 ---
 
 ## 版控範圍
 
-**只追蹤根目錄這一層的 `*.md`。**
+**只追蹤兩個位置的 `*.md`：根目錄，以及 `novel/`。**
+
+（`novel/` 放非技術的寓言文本。以後若再開文件夾，這裡與下面的指令要一起改。）
 
 不追蹤的東西（刻意留在 `git status` 的未追蹤清單裡）：
 
@@ -54,7 +58,7 @@
 
 ### 收哪些
 
-根目錄的 `*.md`，**用明確的清單**。
+根目錄與 `novel/` 的 `*.md`，**用明確的清單**。
 
 > ⚠ **不要用 `git add '*.md'`。**
 > git 的 pathspec 不含斜線時會**撈到子目錄**——實測 `git add --dry-run -- '*.md'`
@@ -69,14 +73,20 @@
 ```powershell
 Set-Location D:\2023\glyphwiki
 
-# 只挑根目錄這一層的 *.md，直接把檔名當參數傳（不要靠 glob）
-$files = @(Get-ChildItem -File -Filter *.md | ForEach-Object { $_.Name })
+# 用明確的清單，直接把檔名當參數傳（不要靠 glob，見上面的警告）
+$files = @(
+  Get-ChildItem -File -Filter *.md | ForEach-Object { $_.Name }
+  Get-ChildItem novel -File -Filter *.md | ForEach-Object { "novel/$($_.Name)" }
+)
 git add -- $files
 git status --short                      # 確認清單裡只有 .md
 
 git commit -m "docs: <這一輪改了什麼>"
 git push
 ```
+
+> **搬檔或改名要用 `git mv`，不要只搬檔案再 `git add` 新路徑。**
+> 後者只會暫存「新增」，舊路徑的刪除還留在工作區，commit 之後舊檔會繼續存在。
 
 ### 兩個踩過的坑
 
