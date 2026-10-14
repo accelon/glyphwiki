@@ -10,6 +10,9 @@
  * 用法：
  *   bun run tools/verify.ts             全套（預設）：建庫 → 重建兩頁 → 8 支檢查 → 指標表
  *   bun run tools/verify.ts --fast      跳過重建，只跑檢查（改測試或查現況時用）
+ *   bun run tools/verify.ts --all       含舊消費者 **＋ 重量級步驟**（`check-structure` 152 秒）
+ *   ⚠ 重量級步驟**預設不跑**：它們的價值不隨每次改動變動，沒必要每回都查
+ *     （師父第 151 輪的指示；實測 `check-structure` 佔整個 verify 的 75%）
  *   bun run tools/verify.ts --lib       只建字庫 ＋ 出貨三套（改 judged 規則時用）
  *   bun run tools/verify.ts --all       加上**舊消費者**（kage-viewer、codemirror-kage）
  *   bun run tools/verify.ts --verbose   每一步的輸出即時串流（卡住時用）
@@ -35,7 +38,7 @@ const skips = new Set<string>();
 for (let i = 0; i < argv.length; i++) if (argv[i] === "--skip" && argv[i + 1]) skips.add(argv[i + 1]!);
 
 type Phase = "build" | "ship" | "check" | "metric";
-interface Step { name: string; args: string[]; phase: Phase; note: string; legacy?: boolean }
+interface Step { name: string; args: string[]; phase: Phase; note: string; legacy?: boolean; heavy?: boolean }
 
 /* 步驟表。順序就是執行順序：建 → 出貨（客人吃得到的）→ 檢查 → 指標。
    `legacy`＝**舊消費者**（編輯器、檢視頁），不屬於出貨面，預設不跑（`--all` 才跑）。
@@ -53,12 +56,16 @@ const STEPS: Step[] = [
   { name: "check-browser",       phase: "ship",   args: ["tools/check-browser.ts"],       note: "出貨②字集瀏覽頁（headless Edge）" },
   { name: "free-compose-test",   phase: "ship",   args: ["tools/free-compose-test.ts"],   note: "出貨③組字引擎" },
   { name: "check-lib-compat",    phase: "check",  args: ["tools/check-lib-compat.ts"],    note: "字庫格式、v1～v6 相容、家族範圍、IDC 不當字" },
+  { name: "check-ids-glyph",     phase: "check",  args: ["tools/check-ids-glyph.ts"],     note: "IDS → 字形（分框算術、**框不重疊**、畫得出來、壞 IDS 誠實）——`glyph-by-ids.md` 的主模塊" },
   { name: "check-component-boxes", phase: "check", args: ["tools/check-component-boxes.ts"], note: "部件身分／順序／緊框（點陣當第二意見）" },
   { name: "check-viewer",        phase: "check",  args: ["tools/check-viewer.ts"],        note: "舊消費者：檢視頁", legacy: true },
   { name: "check-codemirror",    phase: "check",  args: ["tools/check-codemirror.ts"],    note: "舊消費者：編輯器", legacy: true },
 
   { name: "check-parts",         phase: "metric", args: ["tools/check-parts.ts"],         note: "【輸入部件就比對得到】" },
-  { name: "check-structure",     phase: "metric", args: ["tools/check-structure.ts"],     note: "結構成績單（尺規＝新 IDS；算子不是目標）" },
+  /* ⚠ 師父第 151 輪的指示：「check-structure 花的時間太長，沒必要就不要每回都查了。」
+     實測它一個就佔 **152.7 秒**（整個 verify 203.5 秒的 **75%**）。
+     所以標成 `heavy`：**預設不跑**，要看結構成績單時用 `--all`。 */
+  { name: "check-structure",     phase: "metric", args: ["tools/check-structure.ts"],     note: "結構成績單（尺規＝新 IDS；算子不是目標）——**重量級，預設不跑**（152 秒）", heavy: true },
 ];
 
 /* ---------------------------------------------------------------- 基準線
@@ -92,6 +99,8 @@ function selected(): Step[] {
   return STEPS.filter((s) => {
     if (skips.has(s.name)) return false;
     if (s.legacy && !all) return false;
+    /* ★ 第 151 輪：**重量級步驟預設不跑** ✓（`--all` 才跑 ✓）——它們的價值不隨每次改動變動 ✓ */
+    if (s.heavy && !all) return false;
     /* --lib：只重建字庫（改了 judge 規則／獨體表時用）＋ 出貨三套 */
     if (has("--lib")) return s.phase === "ship" || s.name === "build-library";
     if (fast && s.phase === "build") return false;
@@ -107,8 +116,9 @@ if (has("--help") || has("-h")) {
 if (has("--list")) {
   console.log("步驟（依執行順序）：");
   for (const s of STEPS) {
-    console.log(`  ${(skips.has(s.name) ? "－" : s.legacy && !all ? "○" : "·")} ${s.phase.padEnd(6)} ${s.name.padEnd(22)} bun run ${s.args.join(" ")}`);
-    console.log(`      ${s.note}${s.legacy ? "（舊消費者：預設不跑，--all 才跑）" : ""}`);
+    const mark = skips.has(s.name) ? "－" : (s.legacy || s.heavy) && !all ? "○" : "·";
+    console.log(`  ${mark} ${s.phase.padEnd(6)} ${s.name.padEnd(22)} bun run ${s.args.join(" ")}`);
+    console.log(`      ${s.note}${s.legacy ? "（舊消費者：預設不跑，--all 才跑）" : s.heavy ? "（重量級：預設不跑，--all 才跑）" : ""}`);
   }
   process.exit(0);
 }
