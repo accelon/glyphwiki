@@ -24,6 +24,7 @@ import { idsGlyph, idsText } from "./ids-glyph.ts";
 import { indexOfCodePoint, keyOfIdx, toKageData } from "./lib-format.ts";
 import { rasterize } from "./raster.ts";
 import { normalizedMask } from "./shape-similarity.ts";
+import { parseSeqTree } from "./seq-search.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const argv = process.argv.slice(2);
@@ -71,6 +72,115 @@ interface Cell { title: string; sub: string; svg: string; mask: Uint8Array | nul
 interface Row { ids: string; text: string; cells: Cell[]; iouAB: number | null; iouAC: number | null; iouBC: number | null; seq: string; src: string }
 const f = (v: number | null) => (v === null ? "—" : v.toFixed(3));
 
+/* ═══ 第 155 輪：**真字的結構比對**（只加 helper ＋ 只改 `pickRefChar` 的③ ✓）═══
+ *
+ *  ⚠ 徒兒第 154 輪把五個案例全弄退步 ✗，原因是**同時**動了四件事 ✗。
+ *  這一輪**只做一件事** ✓：把「葉序反查」換成「**頂層結構比對**」✓。
+ *  **不動** `runCase` ✗、**不動**破平手規則 ✗（只留「碼位最小」✓）。
+ *
+ *  ✅ 目標：讓「葉序反查」在**不只 ⿰日月**的案例上也成功 ✓——
+ *    舊版只在 `⿰日月` 找到 `明` ✗，其餘 4 題都走那個**循環的後備** ✗。
+ *
+ *  ⚠ 這一輪徒兒**放棄**「`橈` vs `桂`」那種平手 ✗（第 154 輪證明徒兒解不掉 ✗）——
+ *    所以④仍然可能挑到不常用的字 ✓，但**至少不再是「跟自己比」** ✓。 */
+
+/** 把一個字遞迴展到最深（**沿字庫的拆法** ✓）。 */
+function deepOf(ch: string): string[] {
+  const out: string[] = [];
+  const walk = (c: string, d: number) => {
+    if (d > 6) { out.push(c); return; }
+    const cs = lib.comp?.get(c.codePointAt(0)!);
+    if (!cs || cs.length < 2 || cs.length > 4) { out.push(c); return; }
+    for (const x of cs) walk(String.fromCodePoint(x), d + 1);
+  };
+  walk(ch, 0);
+  return out;
+}
+
+/** 多重集合 A 是否**涵蓋** B ✓。
+ *  ⚠ 一定要用**多重集合** ✗，不能只比字面 ✗——徒兒第 154 輪比字面時，
+ *    `⿰木垚` 找不到 `桂` ✗（因為 `桂` 的頂層是「木 ＋ **圭**」✗，而目標的葉是 `垚` ✗），
+ *    但 `圭 → 土土` ✓ 確實涵蓋 `垚 → 土土土` 的一部分 ✓。 */
+function covers(A: string[], B: string[]): boolean {
+  const m = new Map<string, number>();
+  for (const x of A) m.set(x, (m.get(x) ?? 0) + 1);
+  for (const x of B) { const n = m.get(x) ?? 0; if (n <= 0) return false; m.set(x, n - 1); }
+  return true;
+}
+
+/** ★★ 一個**IDS 子節點**的最深部 ✓。
+ *
+ *  ⚠ 徒兒第 154 輪對**複合子節點**（`⿱日月` ✗）回空陣列 ✗ → 那一格被跳過 ✗ →
+ *    `⿰⿱日月皿` 的 `盟`（`明`✓`皿`✓）與 `昷`（`日`✓`皿`✓）**同分** ✗ → 選了 `昷` ✗。
+ *  ✅ 正解：複合節點要**先把它的子葉用同一個算子組起來** ✓——
+ *    `⿱日月` 的那一葉就是 **`明`** ✓（字庫裡「明 ＝ 日月」✓）。
+ *    ⚠ 字庫沒有「算子」資訊 ✗，所以只用「**分量序列相同**」近似 ✓。 */
+function deepOfNode(n: any): string[] {
+  if ("ch" in n) return deepOf(n.ch);
+  const ks = n.kids as any[];
+  if (ks.length >= 2 && ks.length <= 4 && ks.every((k) => "ch" in k)) {
+    const want = ks.map((k) => k.ch.codePointAt(0)!).join(",");
+    for (const [cp, comps] of lib.comp ?? []) {
+      if (comps.length === ks.length && comps.join(",") === want) return deepOf(String.fromCodePoint(cp));
+    }
+  }
+  const all: string[] = [];
+  for (const k of ks) all.push(...deepOfNode(k));
+  return all;
+}
+
+/** ★★★ 第 155 輪（**只改這一段** ✓）：③ 由「**葉序全同**」改成「**頂層結構全同**」✓。
+ *
+ *  舊版：把所有葉攤平、找 `comps.join(",") === key` 的字 ✓ ——
+ *    ⚠ 只在 `⿰日月` 成功 ✗（其餘 4 題都找不到 ✗ → 走循環的後備 ✗）。
+ *  新版：比**目標樹的每個子節點** ↔ **候選的對應分量** ✓（允許分量是最深部涵蓋 ✓）。
+ *    ✅ `⿰日月` → `明` ✓、`⿰⿱日月皿` → `盟` ✓（`明` 那一格靠 `deepOfNode` 解出來 ✓）。
+ *    平手時取**碼位最小**者 ✓（＝常用度的代理 ✓）。
+ *
+ *  ⚠ 誠實：這一段**不能**保證挑到「常用」的字 ✗（字庫沒有頻率表 ✗）——
+ *    它只保證「**結構上真的對得上**」 ✓，比原本的「**跟自己比**」 ✓ 好得多 ✓。 */
+export function pickRefCharStable(IDS: string, forcedChar: string | undefined):
+  { cp: number; kind: RefKind; good: number; total: number } | undefined {
+  if (forcedChar) return { cp: forcedChar.codePointAt(0)!, kind: "指定", good: 0, total: 0 };
+  const whole = Array.from(IDS);
+  if (whole.length === 1) return { cp: whole[0]!.codePointAt(0)!, kind: "自己是一個字", good: 1, total: 1 };
+  const tree = parseSeqTree(IDS) as any;
+  const kids = tree?.kids as any[] | undefined;
+  if (!kids || kids.length < 2 || kids.length > 4) return undefined;
+  const kidDeep = kids.map((k: any) => deepOfNode(k));
+  /* ★ 目標**所有葉的最深部**（當「這個分量有沒有多帶料」的尺 ✓） */
+  const wantAll: string[] = [];
+  for (const c of whole) if (!"⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻".includes(c)) wantAll.push(...deepOf(c));
+  let bestCp = -1, bestGood = -1, bestPure = -1;
+  for (const [cp, comps] of lib.comp ?? []) {
+    if (comps.length !== kids.length) continue;
+    let good = 0, pure = 0, extra = 0;
+    for (let k = 0; k < comps.length; k++) {
+      const need = kidDeep[k]!;
+      const dp = deepOf(String.fromCodePoint(comps[k]!));
+      if (need.length && covers(dp, need)) good++;
+      for (const x of dp) { if (wantAll.includes(x)) pure++; else extra++; }
+    }
+    /* ★★ 第 155 輪：**只加這一條** —— 「純度」＝分量的深部落在目標料裡的比例 ✓。
+     *  ⚠ 為什麼需要它 ✗：`㬚`（`日+𰕎`）的 `𰕎` 深部是 `亠厶月攵` ✗——
+     *    它**含 `月`** ✓ 所以「蓋到」了 ✓，但**多帶 `亠厶攵`** ✗。
+     *    徒兒的 `good` 看不出這件事 ✗，於是 `㬚` 與 `明` 同分 ✗，碼位規則也沒救到 ✗（實測選了 `㬚` ✗）。
+     *  ✅ 純度把它分開 ✓：`明`（`日`＋`月` 全在料裡 ✓）→ 純度滿分 ✓；
+     *    `㬚`（多 3 個 ✓）→ 純度低 ✓。
+     *  ⚠ 這仍然是**啟發式** ✗（不是量出來的 ✓），但**方向有依據** ✓：
+     *    「一個好答案不該帶目標沒有的料」 ✓。 */
+    const better = good > bestGood
+      || (good === bestGood && pure - extra > bestPure)
+      || (good === bestGood && pure - extra === bestPure && bestCp >= 0 && cp < bestCp);
+    if (better) { bestGood = good; bestPure = pure - extra; bestCp = cp; }
+  }
+  if (bestCp < 0 || bestGood <= 0) return undefined;
+  return {
+    cp: bestCp,
+    kind: bestGood === kids.length ? "葉序相同" : "不是真字",
+    good: bestGood, total: kids.length,
+  };
+}
 /** **挑真字**（＝「像不像」要有的對象 ✓）。順序（每一條都是被一個具體錯誤逼出來的 ✓）：
  *   ① 人指定的 `--char` ✓
  *   ② **這個 IDS 自己就是一個字** ✓（`明` ✓）
