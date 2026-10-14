@@ -423,6 +423,74 @@ export interface SeqSearchOpts {
 
 /* ============================ 主搜尋 ============================ */
 
+/** ★★ 第 150 輪（師父抓到的 bug ✓）：**「引擎 ok」不等於「這是構形序」** ✗。
+ *
+ *  師父說：「`嚣宀吅` 這不對吧？`嚣` 中看不到 `宀`。」——**對** ✓。
+ *  引擎對它的說法只有一行：`串接部件 嚣宀吅（橫向 3 等分）` ✗——
+ *  **根本沒有替換** ✗，只是把三個字**橫向並排** ✗。
+ *  而徒兒的候選檢查是 `if (!q || !q.ok) continue;` ✗——「併排」也會 `ok=true` ✗，
+ *  所以徒兒把「三個無關的字排在一起」當成構形序收下了 ✗。
+ *
+ *  ✅ 正確的閘門：引擎的 log 裡要有一個 **`的`**（格式是「`囂 的 宀 → 吅`」✓）。
+ *  ⚠ **例外**：只有**一個字**的序（`邏` ✓）是合法的 0 步 ✓——那時不必有替換 ✓。
+ *
+ *  實測：`嚣宀吅` 替換步 **0** ✗ 被拒 ✓、`宫宀吕` 1 ✓ 留 ✓、正解 4 ✓ 留 ✓。 */
+/** ★★ 第 150 輪（師父的追問揪出來的**第三種假象** ✗）：**換進去的字跑到畫布外** ✗。
+ *
+ *  實測 `宫宀吕`：引擎說「`宮 的 宀 → 吕（墨跡對齊到框[-121,-1,320,92]`」✗——
+ *  那個框是 `[-120.7, -0.7, 320.3, 92.2]` ✗，而畫布只有 `0..200` ✗。
+ *  也就是說：**換進去的 `吕` 大半在畫布外** ✗，客人**根本看不到它** ✗。
+ *
+ *  ⚠ 這是徒兒這一輪學到的**第三種假象** ✓：
+ *    ① **併排**（`串接部件 …` ✗）——引擎 ok 但沒有替換 ✗
+ *    ② **假天花板**（拿不是真字的字當天花板 ✗）
+ *    ③ **超框**（換進去的字被擺到畫布外 ✗）
+ *  三種都讓「數字看起來很好」✗，但客人看到的是壞的 ✗。
+ *
+ *  ✅ 判準：每一個引用框都要**大致落在畫布裡** ✓（容許 10% 的溢出 ✓，
+ *    因為引擎對齊時本來就可能稍微推出去一點 ✓）。 */
+/** ★★ 第 150 輪（師父的追問揪出來的**第三種假象**）：**換進去的字被擺到畫布外**。
+ *
+ *  實測 `宫宀吕`：引擎說「`宫 的 宀 → 吕（墨跡對齊到框[-121,-1,320,92]`」——
+ *  那個框的寬度是 **441**，而畫布只有 **200**。
+ *  也就是說：引擎把 `吕` 縮到「`宀` 那一格的寬度」，結果**大半跑到畫布外**，
+ *  客人**根本看不到它**。
+ *
+ *  ⚠ 徒兒第一版驗錯了：驗的是**父層的引用框**——
+ *    那些框來自目標的 IDS 樹，**永遠合法**，所以閘門完全沒作用（實測）。
+ *    ✅ 要驗的是**引擎 log 裡那個框**（那才是「它被擺到哪裡」）。
+ *
+ *  ⚠ 這是徒兒這一輪學到的**第三種假象**：
+ *    ① **併排**（`串接部件 …`）——引擎 ok 但沒有替換
+ *    ② **假天花板**（拿不是真字的字當天花板）
+ *    ③ **超框**（換進去的字被擺到畫布外，但 log 看起來「對齊成功」）
+ *  三種都讓「數字看起來很好」，但客人看到的是壞的。
+ *
+ *  ✅ 判準：**引擎 log 裡**每一個「對齊到框[x1,y1,x2,y2]」都要落在畫布附近；
+ *    **寬或高超過畫布的 1.2 倍**就拒（引擎對齊時本來就可能稍微推出去一點）。 */
+function framesInCanvas(L: F.Library, seq: string): boolean {
+  let q: any = null;
+  try { q = evalSeq(L, seq, {}); } catch { return false; }
+  if (!q || !q.ok) return false;
+  for (const l of (q.log ?? [])) {
+    const m = /\[(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+),\s*(-?[\d.]+)\]/.exec(String(l));
+    if (!m) continue;
+    const x1 = Number(m[1]), y1 = Number(m[2]), x2 = Number(m[3]), y2 = Number(m[4]);
+    if (![x1, y1, x2, y2].every((v) => isFinite(v))) return false;
+    if (x1 < -40 || y1 < -40 || x2 > 240 || y2 > 240) return false;
+    if (x2 - x1 > 240 || y2 - y1 > 240) return false;
+  }
+  return true;
+}
+
+function isRealSeq(L: F.Library, seq: string): boolean {
+  if (Array.from(seq).length <= 1) return true;      /* 單字＝合法的 0 步 ✓ */
+  let q: any = null;
+  try { q = evalSeq(L, seq, {}); } catch { return false; }
+  if (!q || !q.ok) return false;
+  for (const l of (q.log ?? [])) if (String(l).includes("的")) return true;
+  return false;
+}
 /** 核心：**IDS → 構形序** ✓（真的組一次當裁判 ✓、葉集合必須涵蓋目標 ✓）。 */
 export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {}): SeqSearchResult {
   const target = parseSeqTree(ids);
@@ -778,9 +846,8 @@ export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {})
       }
       if (!ok) continue;    /* ⚠ 空的 pairs 也要收 ✓（0 步＝這個字**就是**那個形 ✓，`明` 就是 ✓） */
       const seq = ch + pairs.map(([o, n]) => o + n).join("");
-      let okSeq = false;
-      try { const q = evalSeq(lib, seq, {}); okSeq = !!(q && q.ok); } catch { okSeq = false; }
-      if (!okSeq) continue;
+      if (!isRealSeq(lib, seq)) continue;       /* ★ 第 150 輪：併排不算構形序 ✓ */
+      if (!framesInCanvas(lib, seq)) continue;  /* ★ 第 150 輪：超框不算 ✓ */
       let synthTree: SeqNode = { ch: ch };
       for (const [o, n] of pairs) synthTree = replaceLeaf(synthTree, o, { ch: n });
       oneStep.push({ tree: synthTree, pairs: pairs, base: ch, cov: scoreOf(synthTree) });
@@ -938,9 +1005,11 @@ export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {})
               const seq = ch + old + mine;
               if (seenSeq2.has(seq)) continue;
               seenSeq2.add(seq);
-              let q: any = null;
-              try { q = evalSeq(lib, seq, {}); } catch { q = null; }
-              if (!q || !q.ok) continue;
+              { let q: any = null;
+                try { q = evalSeq(lib, seq, {}); } catch { q = null; }
+                if (!q || !q.ok) continue;
+                if (!isRealSeq(lib, seq)) continue;      /* ★ 第 150 輪：併排不算構形序 ✓ */
+                if (!framesInCanvas(lib, seq)) continue;  /* ★ 第 150 輪：超框不算 ✓ */ }
               const tree: SeqNode = values.length === 1
                 ? values[0]!
                 : { op: topOp, kids: values };
