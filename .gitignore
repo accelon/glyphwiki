@@ -30,3 +30,11 @@ gokage/
 swjz.xml
 vendor-cm/
 nul
+
+# 內嵌的 git 倉庫（各自的 clone）——直接 `git add` 只會存一個**指標** ✗，
+# 對外 clone 拿不到內容 ✗，所以不入版控；要用的話自行 clone：
+#   git clone https://github.com/yi-bai/ids            ids
+#   kage-engine／unicode-cjk-ids 亦同（見 progress/技術交接文件.md §15.7）
+ids/
+kage-engine/
+unicode-cjk-ids/
