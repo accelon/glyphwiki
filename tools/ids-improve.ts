@@ -271,19 +271,43 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
       const PICK = Number(arg("--pick", "40"));
       let bestSeq = r.candidates[0]!.seq, bestScore = -Infinity;
       for (const c of r.candidates.slice(0, PICK)) {
-        let v = 0, x = aCross0, np = 0;
+        let v = 0, x = aCross0, np = 0, nF = 0;
         try {
           const q = evalSeq(lib, c.seq, {});
           if (q && q.ok) {
             const m = maskOf(q.lib, q.targetIdx);
             const sp = spreadOf(q.lib, q.targetIdx);
-            x = sp.cross; np = sp.paths;
+            x = sp.cross; np = sp.paths; nF = sp.frames.length;
             if (m && refMask) v = iou(refMask, m);
             else v = 0.001;                       /* 沒有真字可量時，退回「第一條」✓ */
           }
         } catch { v = 0; }
         /* ★ 沒有真字時，通過判準者**優先** ✓（有真字時不加 ✓，見上面的說明 ✓） */
-        const okc = !hasRealRef && x < CROSS_MAX && np >= PATHS_MIN;
+        /* ★★★ 第 157 輪：**加「引用框數 ≥ 2」當閘門** ✓（這是缺的最後一塊 ✗）。
+         *
+         *  ⚠ 為什麼需要它 ✗：第 156 輪的答案 `㩁宀寉` 交錯 **0.000** ✓、路徑 49 ✓
+         *    ——**通過了**判準 ✗，但它只有 **1 個引用框** ✗。
+         *    1 個框 ＝ 「**單格包裝**」✓ ＝ **根本沒有槽可以再換** ✗
+         *    → 它的骨架永遠卡在 **1460** ✗（正解是 **1834** ✓）。
+         *
+         *  ✅ 「框 ≥ 2」的意思是「**這是一個有內部結構的字**」✓ ——
+         *    也才是「**可以繼續展開**」的字 ✓（多步解的前提 ✓）。
+         *
+         *  實測（六葉，前 40 名裡同時滿足 框≥2 ＋ 交錯<0.03 ＋ 路徑≥35 的）：
+         *  | 候選 | 框 | 交錯 | 路徑 | 骨架 |
+         *  | --- | ---: | ---: | ---: | ---: |
+         *  | `𧾄辶進` | 2 | **0.000** | 57 | **1872** ← 比正解還長 ✓ |
+         *  | `𧸵宀賏` | 2 | 0.019 | 64 | 1864 |
+         *  | `鶴宀寉` | 2 | 0.028 | 63 | 1575 |
+         *  | **文檔正解** | 2 | **0.000** | **89** | **1834** |
+         *  | `㩁宀寉`（第 156 輪的答案 ✗） | **1** ✗ | 0.000 | 49 | 1460 |
+         *
+         *  ⚠ 這一條是**量出來的** ✓（不是徒兒選的 ✓）：`㩁宀寉` 的 1460 與
+         *    正解的 1834 差 **374** ✓，而「框數」恰好把兩者分開 ✓。 */
+        /* 徒兒第一版自己重寫了「數框」，而在這條路徑上讀不到框（實測永遠 0，閘門失效）。
+           spreadOf() 的結果本來就有 frames（第 146 輪就寫好了），一行就有——徒兒又重造輪子。 */
+        const nFrames = nF;   /* ＝ spreadOf 的 frames.length，只是拉到這裡才看得到 */
+        const okc = !hasRealRef && nFrames >= 2 && x < CROSS_MAX && np >= PATHS_MIN;
         /* ★ 有真字時：**完全照原來的行為** ✓（純 IoU 最大 ✓，不加罰分 ✗）——
          *   ⚠ 徒兒第一版加了 `- W0 * (x - aCross0)` ✗，結果 `⿰日月` 從
          *     **`明`（1.000）** 退成 `𮲗日昍`（0.246）✗ —— 那個罰分偷偷把 `明` 推掉了 ✗。
