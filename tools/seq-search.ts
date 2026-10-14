@@ -849,6 +849,52 @@ export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {})
       };
       if (topOp && "kids" in target) {
         const kids = (target as { op: string; kids: SeqNode[] }).kids;
+        /* ───────── 第 140 輪：**單葉塊替換**（`盟皿明` 這一條 ✓）─────────
+           ⚠ 上面那條迴圈把「舊值」與「新值在目標裡的對應」**綁在同一塊** ✗——
+             但引擎的真相是**兩件事** ✓（徒兒第 140 輪才量清楚 ✗）：
+               `盟皿明` ＝ 引擎的「盟 的 **皿 → 明**」✓，其中
+                 * **舊值** `皿` 是**目標的第三葉** ✓（第二塊的唯一葉 ✓），
+                 * **新值** `明` 的元素 `{日,月}` 對應的是**第一塊** ✓。
+             所以「新值要配哪一塊」與「舊值在哪一塊」**不必相同** ✗。
+           ✅ 這一條把它們解開 ✓：對**每一個單葉的塊** ✓（只有那裡能當舊值 ✗）
+              試**每一個分量** ✓——只要那個分量的元素**等於目標的某一個塊** ✓
+              （＝它是「那一塊的形」✓），就提出「把這個單葉換成它」✓。
+           ⚠ 為什麼用**加法**而不是改上面那條 ✗：上面那條**已經在養 `盟皿明`** ✓
+              （實測 #137 ✓），改它會把它弄丟 ✗（徒兒第 140 輪改過兩次都弄丟 ✗）。 */
+        {
+          const singles: number[] = [];
+          for (let b = 0; b < kids.length; b++) if (treeLeaves(kids[b]!).length === 1) singles.push(b);
+          if (singles.length) {
+            const bk = kids.map((kd) => {
+              const m = new Map<string, number>();
+              for (const l of treeLeaves(kd)) for (const e of deepLeaves(lib, l)) m.set(e, (m.get(e) ?? 0) + 1);
+              return [...m.entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([k, v]) => k + v).join("");
+            });
+            const seen3 = new Set<string>();
+            for (const [cp, comps] of lib.comp) {
+              if (F.indexOfCodePoint(lib, cp) === undefined) continue;
+              const ch2 = String.fromCodePoint(cp);
+              if (comps.length !== topKids.length) continue;
+              for (const mine of comps.map((c) => String.fromCodePoint(c))) {
+                const mk = [...deepMultisetOf(lib, mine).entries()].sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([k, v]) => k + v).join("");
+                if (!bk.includes(mk)) continue;              /* 新值要是「某一塊的形」✓ */
+                for (const b of singles) {
+                  const old = treeLeaves(kids[b]!)[0]!;
+                  if (old === mine) continue;
+                  const seq = ch2 + old + mine;
+                  if (seen3.has(seq)) continue;
+                  seen3.add(seq);
+                  let q: any = null;
+                  try { q = evalSeq(lib, seq, {}); } catch { q = null; }
+                  if (!q || !q.ok) continue;
+                  const vals: SeqNode[] = kids.map((kd, i) => (i === b ? ({ ch: mine } as SeqNode) : kd));
+                  const tr: SeqNode = { op: topOp, kids: vals };
+                  oneStep.push({ tree: tr, pairs: [[old, mine]], base: ch2, cov: scoreOf(tr) });
+                }
+              }
+            }
+          }
+        }
         const tgtKeys = new Set([...targetElemSet.keys()]);
         /** ★★ **免費的前置篩選** ✓（第 139 輪 ✓，很重要 ✗）：
          *  ⚠ 徒兒第一版對**每一個分量都問一次引擎** ✗——`lib.comp` 有 97k 個字 ✗、
