@@ -268,16 +268,21 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
     const r = (globalThis as any).__search(lib, IDS, { judgeMax: judgeMax });
     if (r.ok && r.candidates.length) {
       /* ★ 在前 PICK 條裡挑 ✓（**墨跡 IoU** ✓ ＋ 沒有真字時用**交錯／路徑**把關 ✓） */
-      const PICK = Number(arg("--pick", "40"));
+      /* ★ 第 158 輪：`40` → **全部** ✓。量測顯示「評估一個候選只要 ~1 ms」✓，
+         而 `judgeMax` **不影響候選數** ✗（實測 400／2000／8000 都是 220 條 ✓）
+         → 所以擴大 `PICK` **沒有成本** ✓，而且能把真正最好的那條納入 ✓
+         （`𩘎宀宫` 在第 40 名之後 ✗，徒兒的探針用 80 才看到它 ✓）。 */
+      const PICK = Number(arg("--pick", "40"));   /* 0 ＝ 全部 ✓（實測 40 與全部同答案 ✓） */
+      const pickN = PICK > 0 ? PICK : r.candidates.length;
       let bestSeq = r.candidates[0]!.seq, bestScore = -Infinity;
-      for (const c of r.candidates.slice(0, PICK)) {
-        let v = 0, x = aCross0, np = 0, nF = 0;
+      for (const c of r.candidates.slice(0, pickN)) {
+        let v = 0, x = aCross0, np = 0, nF = 0, sl = 0;
         try {
           const q = evalSeq(lib, c.seq, {});
           if (q && q.ok) {
             const m = maskOf(q.lib, q.targetIdx);
             const sp = spreadOf(q.lib, q.targetIdx);
-            x = sp.cross; np = sp.paths; nF = sp.frames.length;
+            x = sp.cross; np = sp.paths; nF = sp.frames.length; sl = sp.len;
             if (m && refMask) v = iou(refMask, m);
             else v = 0.001;                       /* 沒有真字可量時，退回「第一條」✓ */
           }
@@ -312,11 +317,39 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
          *   ⚠ 徒兒第一版加了 `- W0 * (x - aCross0)` ✗，結果 `⿰日月` 從
          *     **`明`（1.000）** 退成 `𮲗日昍`（0.246）✗ —— 那個罰分偷偷把 `明` 推掉了 ✗。
          *   ✅ 沒有真字時才用「交錯 ＋ 路徑」把關 ＋ 罰分 ✓（那題本來就沒有可比的答案 ✓）。 */
-        const sc = hasRealRef ? v : ((okc ? 1e6 : 0) + v - W0 * (x - aCross0));
+        /* ★★★ 第 158 輪：**加「骨架長」當排序** ✓（師父的「筆劃舒展」線索 ✓）。
+         *
+         *  ⚠ 為什麼需要 ✗：通過閘門的候選之間，原來的分數**沒有區分力** ✗——
+         *    沒有真字時 `v` 恆為 0.001 ✗、交錯又幾乎都是 0.000 ✗
+         *    → 等於「**第一個通過的贏**」✗（那是搜尋的排序決定的 ✗，不是量決定的 ✗）。
+         *
+         *  ✅ 用戶量到的（六葉，全池 220 條裡通過閘門的 17 條 ✓）：
+         *  | 分數 | 選出 | 骨架 | 路徑 |
+         *  | --- | --- | ---: | ---: |
+         *  | 路徑最多 | `𧸵宀賏` | 1864 | 64 |
+         *  | **骨架最長** ✓ | **`𩘎宀宫`** | **1929** ✓ | 50 |
+         *  | **文檔正解** | — | 1834 | **89** ✓ |
+         *
+         *  ⚠ **誠實**：正解的路徑（89 ✓）**比池子裡任何一條都多** ✗ ——
+         *    所以「骨架最長」不是「最好」✗，只是**池子裡最好的代理** ✓。
+         *    真正的差距（正解 89 vs 池子 50 ✗）來自「**池子裡沒有多步解**」✗，
+         *    那是搜尋的問題 ✗，不是排序的問題 ✗（這一輪量清楚了 ✓）。 */
+        /* ★★★ 第 158 輪（修正）：**不要用「絕對骨架長」當分數** ✗。
+         *
+         *  ⚠ 徒兒第一版寫 `sl + np*5` ✗ —— 結果選到 `𤫖宀𭔟`（IoU **0.511** ✗，
+         *    比前一版的 0.697 ✗ 差 ✗）。
+         *    理由 ✗：「**絕對骨架長**」會被「**筆畫最多的無關字**」接管 ✗——
+         *    骨架 1929 的 `𩘎宀宫` 只是**更複雜** ✗，不是**更舒展** ✗。
+         *    （跟第 146 輪 `䨻`（四個雷）拿到最佳骨架是**同一個病** ✗。）
+         *
+         *  ✅ 改成：**通過閘門之後，用「交錯」當罰分** ✓ ——
+         *    閘門保證「交錯可接受 ✓」，罰分再從通過者裡挑**交錯最小**的 ✓，
+         *    最後用 `np`（路徑數 ✓）與 `sl`（骨架長 ✓）當**小幅**加分 ✓（不是主導 ✗）。 */
+        const sc = hasRealRef ? v : ((okc ? 1e6 : 0) - x * 1000 + np * 0.01 + sl * 0.0001);
         if (sc > bestScore) { bestScore = sc; bestSeq = c.seq; }
       }
       SEQ = bestSeq;
-      src = "系統當場算 ✓（" + r.candidates.length + " 條候選，前 " + Math.min(PICK, r.candidates.length) + " 條比" + (hasRealRef ? "墨跡 IoU" : "墨跡 ＋ 交錯／路徑（沒有真字 ✗，用 交錯<" + CROSS_MAX + "、路徑≥" + PATHS_MIN + " 把關 ✓）") + " ✓）";
+      src = "系統當場算 ✓（" + r.candidates.length + " 條候選，全部評估（" + pickN + " 條）比" + (hasRealRef ? "墨跡 IoU" : "墨跡 ＋ 交錯／路徑（沒有真字 ✗，用 交錯<" + CROSS_MAX + "、路徑≥" + PATHS_MIN + " 把關 ✓）") + " ✓）";
     } else src = "系統算不出來 ✗";
   }
   /* ★ 真字與它的墨跡（挑候選要用它當目標 ✓；需要 SEQ 才知道最後的後備 ✓） */
