@@ -77,20 +77,24 @@ const f = (v: number | null) => (v === null ? "—" : v.toFixed(3));
  *   ③ **葉序反查** ✓（`⿰日月` → `明` ✓；`⿰⿱日月皿` → `盟` ✓）
  *  ⚠ **不要**用「今法那一串的第一個字」✗——徒兒第一版用它 ✗，
  *    結果系統算錯時（`㳑氵昷皿朋` ✗）天花板會變成那個錯字 ✗，整個對照就失去意義 ✗。 */
-function pickRefChar(IDS: string, forcedChar: string | undefined, seq: string): number | undefined {
-  if (forcedChar) return forcedChar.codePointAt(0)!;
+type RefKind = "指定" | "自己是一個字" | "葉序相同" | "不是真字";
+function pickRefChar(IDS: string, forcedChar: string | undefined, seq: string): { cp: number; kind: RefKind } | undefined {
+  if (forcedChar) return { cp: forcedChar.codePointAt(0)!, kind: "指定" };
   const whole = Array.from(IDS);
-  if (whole.length === 1) return whole[0]!.codePointAt(0)!;
+  if (whole.length === 1) return { cp: whole[0]!.codePointAt(0)!, kind: "自己是一個字" };
   const leaves: number[] = [];
   for (const c of whole) if (!"⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻".includes(c)) leaves.push(c.codePointAt(0)!);
   if (leaves.length >= 2) {
     const key = leaves.join(",");
-    for (const [cp, comps] of lib.comp ?? []) if (comps.join(",") === key) return cp;
+    for (const [cp, comps] of lib.comp ?? []) if (comps.join(",") === key) return { cp: cp, kind: "葉序相同" };
   }
   /* ④ 最後才用「今法那一串的第一個字」✓（它一定是真字 ✓，但**可能是錯的答案** ✗——
      所以只能當**最後**的後備 ✓，不能像徒兒第一版那樣擺在最前面 ✗）。 */
+  /* ★★ 第 145 輪：**這不是真字** ✓——徒兒第 142～144 輪一直拿它當「天花板」✗，
+     量出來的「今法比古法差」✗ 就是這樣來的 ✗（量錯了對象 ✗）。
+     所以現在**明講**它是「不是真字」✓，而且下面的比較會**標示出來** ✓。 */
   const first = seq ? Array.from(seq)[0] : undefined;
-  return first ? first.codePointAt(0)! : undefined;
+  return first ? { cp: first.codePointAt(0)!, kind: "不是真字" as RefKind } : undefined;
 }
 
 /** 一個案例算一列 ✓（**今法由系統當場算** ✓——除非人用 `--seq` 指定 ✓）。
@@ -129,7 +133,8 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
     } else src = "系統算不出來 ✗";
   }
   /* ★ 真字與它的墨跡（挑候選要用它當目標 ✓；需要 SEQ 才知道最後的後備 ✓） */
-  const refCp = pickRefChar(IDS, forcedChar, SEQ);
+  const ref = pickRefChar(IDS, forcedChar, SEQ);
+  const refCp = ref?.cp;
   const refMask = refCp === undefined ? null : (() => {
     const gi = indexOfCodePoint(lib, refCp);
     return gi === undefined ? null : maskOf(lib, gi);
@@ -145,8 +150,10 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
   if (refCp !== undefined) {
     const gi = indexOfCodePoint(lib, refCp)!;
     const seqFirst = SEQ ? Array.from(SEQ)[0] : undefined;
-    const why = refCp === seqFirst?.codePointAt(0) ? "　＝今法的答案 ✓"
-      : forcedChar && refCp === forcedChar.codePointAt(0) ? "　（指定的真字 ✓）" : "　（葉序相同的真字 ✓）";
+    const why = ref && ref.kind === "不是真字"
+      ? "　⚠ 不是真字：這個 IDS 沒有對應的真字；下面那個只是今法那一串的第一個字——不可以當天花板 " +
+        "（拿它比出來的 IoU 沒有意義，只能當粗略參考）"
+      : "　（" + (ref?.kind ?? "") + " ✓）";
     cellB = {
       title: "B 真字（天花板）", sub: String.fromCodePoint(refCp) + "　U+" + refCp.toString(16).toUpperCase() + why,
       svg: svgOf(lib, drawingIdx(lib, gi)), mask: refMask,
