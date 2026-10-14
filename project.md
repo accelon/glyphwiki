@@ -215,7 +215,7 @@ GlyphWiki 是**工作基礎，不是金科玉律**。
 
 - `4木曰` 查不到資料，**不是 bug**：U+2320C 引用的其實是「日」（U+65E5），不是「曰」（U+66F0）。`4木日` 才對。
 - KAGE 算出來的「筆劃數」是**筆段數**，不是康熙筆劃（口=4、日=5、木=4；傳統是 3/4/4）。但扣減算術自洽，所以搜尋語法照用，只是要記得它的定義。
-- 版面模板化、規範槽位、光柵化比對——三個「聽起來很合理」的方案都被**量測否決**（見 `技術交接文件.md` §11）。
+- 版面模板化、規範槽位、光柵化比對——三個「聽起來很合理」的方案都被**量測否決**（見 `progress/技術交接文件.md` §11）。
 - 判準要量出來才敢用。例：方位門檻本來用 1/3–2/3，實測 173,298 筆引用後發現左右不對稱（左 43,399 / 右 29,697），改成 0.40–0.60（左 43,888 / 右 47,806）才對稱。
 
 ### 5.6 其他慣例
@@ -420,7 +420,7 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 | `unicode-cjk-ids/` | IDS 結構來源（`All.txt` ＋ 10 個分區塊 txt）。是 [chise/ids] 的備份修補版，本身就是一個 git repo |
 | `kage-engine/` | 渲染引擎（原 JS 實作，8 個 `.js`）。**外部相依，不要改**；是 git repo |
 | `vendor-cm/` | CodeMirror 6 的下載與打包（`src/entry.ts` → `dist/cm6.global.js`）。**不入版控** |
-| `gokage/` | KAGE 的 Go 移植實驗（骨架模式）。**已放棄**（見 `技術交接文件.md` §10.2） |
+| `gokage/` | KAGE 的 Go 移植實驗（骨架模式）。**已放棄**（見 `progress/技術交接文件.md` §10.2） |
 | `nul` | 不是檔案——那是 Windows 的 NUL 裝置，被 `Get-ChildItem` 列出來而已 |
 
 ---
@@ -445,8 +445,8 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 
 走訪時發現的，供後續維護參考（**這份 `project.md` 以實際檔案為準**）：
 
-1. **`技術交接文件.md` §13 檔案清單已過時**。它列的 `out/*` 大小（`lib-cjk.bin` 1.86 MB、`kage-viewer.html` 1.32 MB…）是早期數字；現在 `kage-viewer.html` 2.53 MB、`glyph-browser.html` 3.15 MB、`codemirror-kage.html` 1.64 MB，而清單裡完全沒有 `glyph-browser.html`。`tools/` 只列了約 20 支，實際有 91 支。
-2. **`技術交接文件.md` §6 建立流程用 `--out out/lib-cjk.bin`（BMP）**。要建全部 CJK 必須明寫 `--out out/lib-cjk-all.bin`——但 `build-library.ts` 的**檔案內用法說明**寫的是 `--out out/lib-cjk-all.bin`，而**程式碼預設值**是 `out/lib-cjk.bin`。三者不一致，容易建錯。
+1. **`progress/技術交接文件.md` §13 檔案清單已過時**。它列的 `out/*` 大小（`lib-cjk.bin` 1.86 MB、`kage-viewer.html` 1.32 MB…）是早期數字；現在 `kage-viewer.html` 2.53 MB、`glyph-browser.html` 3.15 MB、`codemirror-kage.html` 1.64 MB，而清單裡完全沒有 `glyph-browser.html`。`tools/` 只列了約 20 支，實際有 91 支。
+2. **`progress/技術交接文件.md` §6 建立流程用 `--out out/lib-cjk.bin`（BMP）**。要建全部 CJK 必須明寫 `--out out/lib-cjk-all.bin`——但 `build-library.ts` 的**檔案內用法說明**寫的是 `--out out/lib-cjk-all.bin`，而**程式碼預設值**是 `out/lib-cjk.bin`。三者不一致，容易建錯。
 3. **`load-ids.ts` 檔頭說「產出四張表」**（`ids_ops` / `ids` / `ids_comp` / `ids_ref`），實際 DB 裡還有 `ids_deep`、`ids_tree_align`（以及 `suffix_stats`、`meta`）。`format.md` 有提到 `ids_tree_align`，所以是檔頭漏寫，不是功能缺失。
 4. **`check-lib-compat.ts` 的檔頭**說它的職責是「新舊 `findGlyphIndex` 的逐碼位對照」，但它現在同時是**唯一的字庫層級資料斷言**（家族必須落在區段內、IDC 不得被當成字、12 區塊都要有字）。只看檔頭會低估它的重要性。
 5. **`out/` 裡有一批無主的產物**：`browser-mockup.*`、`demo-cases.*`、`sheet-a/b.*`、`lib-nodict.bin*`、`shot-editor.png`、`cm-shot-*.png`。在 `tools/` 裡找不到產生它們的程式（可能是早期版本的工具已刪除）。不確定是否還需要保留。

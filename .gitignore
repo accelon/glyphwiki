@@ -1,0 +1,32 @@
+# 由 dump 產生的資料庫（可重建，不入版控）
+db/
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
+# bun
+node_modules/
+bun.lockb
+
+# CodeMirror 6 的下載與打包產物（可重建，不入版控）
+#   cd vendor-cm && npm install && cd .. && bun run vendor-cm/build.ts
+vendor-cm/node_modules/
+vendor-cm/dist/
+vendor-cm/package-lock.json
+
+# 匯出檔
+out/
+
+# 原始資料與第三方資料（體積大、可另行下載；不入版控）
+#   dump/ 291 MB、db/ 1.7 GB、unihan/ 40 MB、unicode-cjk-ids/ 4.3 MB、
+#   dump.tar.gz 109 MB、swjz.xml 5.9 MB、vendor-cm/ 3 MB（cd vendor-cm && npm install 可重建）
+#   `ids/`（7.6 MB，IDS 來源）**有進版控** —— 建置要用它
+dump/
+dump.tar.gz
+unihan/
+unicode-cjk-ids/
+gokage/
+swjz.xml
+vendor-cm/
+nul

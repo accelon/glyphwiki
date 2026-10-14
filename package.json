@@ -1,0 +1,10 @@
+{
+  "name": "glyphwiki-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build-db": "bun run tools/build-db.ts",
+    "q": "bun run tools/q.ts",
+    "verify": "bun run tools/verify.ts"
+  }
+}

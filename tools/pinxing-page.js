@@ -1,0 +1,2278 @@
+// pinxing-page.js — 剎那拼形（pinxing.html）的頁面程式碼（由 tools/build-pinxing.ts 內嵌）。
+//
+// **為什麼是獨立的 .js，不要寫進 builder 的樣板字串**：
+// 樣板字串裡的反引號會提前結束字串、`"` 會被吃掉、`${}` 會被插值——
+// 這個坑專案踩過三次，每次都是整頁空白（見 拼形檢視器-施工單.md §9）。
+//
+// 依賴（都在這個 script 的上方內嵌）：
+//   kage-engine、tools/*.ts（lib-format／compose-fit／free-compose／component-boxes…）、
+//   tools/glyph-common-page.js（$／glyphSvg／inkOfGlyph／boxesOfGlyph／bigSvgHtml…）
+//
+// 版面手機豎版優先，由上到下＝輸入 → 大字 → 部件序列 → 庫存拼形 → 候選。
+
+/* ============================ 字庫與索引 ============================ */
+var LIB_B64 = "__LIB_B64__";
+var LIB = null;
+
+/** 這個字庫裡「只由一個引用構成」的字：把它看成那個被引用的字。
+    `uXXXX` 這種純指標名字就是這一類，沒有這一步輸入「邏」會找不到字形。 */
+function glyphIndexOf(ch) {
+  var i = indexOfChar(LIB, ch);
+  if (i !== undefined) return i;
+  var cp = ch.codePointAt(0);
+  if (cp === undefined) return undefined;
+  var fam = familyMembers(LIB, cp);
+  for (var k = 0; k < fam.length; k++) {
+    var g = LIB.glyphs[fam[k]];
+    if (g.strokes.length === 1 && g.strokes[0].kind === 99 && g.strokes[0].ref !== null) return fam[k];
+  }
+  return undefined;
+}
+
+/* ---- 顏色 ----
+   `compMiniHtml()`（共用層）會呼叫 `colorOfGlyph()`，所以這一頁也要有。
+   剎那拼形不做區塊配色（那是字集瀏覽頁的事），一律用前景色；
+   真正在傳達「哪個部件是哪個」的是 `boxColor(order)`（框的顏色）。 */
+var FG = "rgb(232,236,244)";
+function colorOfGlyph() { return FG; }
+
+/* ============================ 組字結果的描繪 ============================ */
+/* free-compose 的結果常常在**另一個庫**（fork 出來的副本、庫尾多了合成字形），
+   所以不能走 `glyphSvg(i)`（它綁死全域 LIB）。這一組是「給定 lib」的版本。 */
+
+var seqSvgCache = new Map(), seqInkCache = new Map();
+
+/** 合成字形的快取鍵：**用筆劃簽章，不要用（索引, 庫長度）**。
+ *
+ *  為什麼：`evalSeq()` 每次都 fork 一個新庫、把合成字形接在**庫尾**，
+ *  所以兩次不同的組合會拿到**同一個索引、同一個庫長度**——
+ *  鍵一樣就回傳上一個組合的 SVG，症狀是「改成 角 了，畫面上還是 刀」
+ *  （使用者回報「先輸入祈斤角、再輸入祈斤角還是得到祈斤刀」）。
+ *  簽章只認筆劃內容，不同組合一定不同鍵，相同組合又剛好可以共用快取。
+ *
+ *  **引用（kind 99）要遞迴展開**——只寫 `s.ref` 這個索引是不夠的，這是第二個、
+ *  更隱蔽的撞鍵（使用者回報「`報土业` 正常，但把 `业` 換成任何部件都沒有變化」）：
+ *  `報` 的 `土` 藏在 `幸` 裡面，引擎改的是 **fork 出來的 `幸`**（同一個索引、
+ *  內容被換掉），所以 `報土业`／`報土日`／`報土田` 在 `報` 這一層的引用索引、
+ *  框、伸縮**完全相同**——簽章一模一樣，快取就把 業 的圖回給 日。
+ *  `幸土业` 沒有這個症狀（那一層的引用索引真的不同），所以看起來像只有深層壞掉。
+ *
+ *  遞迴要有深度上限：正常資料不會有環，但真的遇到也不能把整頁鎖死
+ *  （`lib.glyphs` 由參數傳進來，所以同一份簽章函式可以給 fork 過的庫用）。 */
+function glyphSig(lib, g, depth) {
+  if (!g) return "?";
+  if (depth === undefined) depth = 0;
+  if (depth > 32) return "…";
+  var st = g.strokes, a = [];
+  for (var i = 0; i < st.length; i++) {
+    var s = st[i];
+    if (s.kind === 99) {
+      var kid = (lib && lib.glyphs && s.ref !== null && s.ref !== undefined) ? lib.glyphs[s.ref] : null;
+      a.push("r" + s.ref + "[" + glyphSig(lib, kid, depth + 1) + "]" +
+        ":" + (s.box ? s.box.join(",") : "") + ":" + (s.stretch ? s.stretch.join(",") : ""));
+    } else {
+      a.push(s.kind + ":" + s.width + ":" + s.style + ":" + (s.points ? s.points.join(",") : ""));
+    }
+  }
+  return a.join("|");
+}
+
+function svgOfLib(lib, idx) {
+  var g = lib.glyphs[idx];
+  var key = lib === LIB ? "#" + idx : "seq:" + glyphSig(lib, g);
+  var hit = seqSvgCache.get(key);
+  if (hit !== undefined) return hit;
+  var svg = glyphSvgIn(lib, idx);
+  if (seqSvgCache.size > 600) seqSvgCache.clear();
+  seqSvgCache.set(key, svg);
+  return svg;
+}
+function inkOfLib(lib, idx) {
+  var g = lib.glyphs[idx];
+  var key = lib === LIB ? "#" + idx : "seq:" + glyphSig(lib, g);
+  var hit = seqInkCache.get(key);
+  if (hit !== undefined) return hit;
+  var b = inkOfGlyphIn(lib, idx);
+  if (seqInkCache.size > 600) seqInkCache.clear();
+  seqInkCache.set(key, b);
+  return b;
+}
+
+/** 庫＋索引 → SVG。與共用層的 `glyphSvg()` 同一條路，只是庫是參數。 */
+function glyphSvgIn(lib, idx) {
+  var kage = newKage();
+  fillKageIn(kage, lib, idx);
+  var polys = new Polygons();
+  kage.makeGlyph(polys, keyOfIdx(lib, idx));
+  return normalizeSvg(polys.generateSVG(true))
+    .replace(/fill="(?:black|#000000)"/g, 'fill="currentColor"')
+    .replace(/<svg\b/, '<svg class="gly"');
+}
+
+/** 庫＋索引 → 精確墨跡（引擎多邊形，不要走筆劃座標——見施工單 §8.3） */
+function inkOfGlyphIn(lib, idx) {
+  var kage = newKage();
+  fillKageIn(kage, lib, idx);
+  var polys = new Polygons();
+  kage.makeGlyph(polys, keyOfIdx(lib, idx));
+  return inkBoundsOfPolys(polys);
+}
+
+function fillKageIn(kage, lib, i) {
+  var seen = new Set(), stack = [i];
+  while (stack.length) {
+    var j = stack.pop();
+    if (seen.has(j)) continue;
+    seen.add(j);
+    var g = lib.glyphs[j];
+    if (!g) continue;
+    kage.kBuhin.push(keyOfIdx(lib, j), toKageData(g, lib));
+    for (var k = 0; k < g.strokes.length; k++) {
+      var s = g.strokes[k];
+      if (s.kind === 99 && s.ref !== null) stack.push(s.ref);
+    }
+  }
+  return kage;
+}
+
+/** 粗細改了：兩份快取都要清（共用層的 ＋ 這一頁自己的） */
+function clearAllCache() { clearDrawCache(); seqSvgCache.clear(); seqInkCache.clear(); }
+
+/* ============================ 畫面上那一個大字 ============================ */
+/* MAIN ＝ { lib, idx, boxes, ink } ——「現在畫的是哪個庫裡的哪個字形」。 */
+var MAIN = null;
+
+function setMain(lib, idx) {
+  if (lib === null || idx === undefined || idx === null || idx < 0) { MAIN = null; return; }
+  var boxes = lib === LIB ? boxesOfGlyph(idx) : componentBoxes(lib, idx, function (i) { return inkOfLib(lib, i); });
+  MAIN = { lib: lib, idx: idx, boxes: boxes, ink: lib === LIB ? inkOfGlyph(idx) : inkOfLib(lib, idx) };
+}
+
+function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
+
+/* ============================ 相容異體 ============================ */
+/* 同一個部件在字庫裡可能是**不同碼位**——實測撞到的牆：
+ *   `進` 的引用是 **辶 U+FA66**（CJK 相容字符），不是 `辶 U+8FB6`。
+ *   全庫：含 辶 的字 2,032 個、含 辶 的只有 4 個、**交集 0**。
+ * 所以照部件格顯示的 辶 去搜尋只會找到 4 個字。這張表把同一個部件的碼位綁在一起。 */
+var RADICAL_SYN = {
+  0x2E80: 0x2ECC, 0x2E81: 0x5382, 0x2E84: 0x4E36, 0x2E85: 0x4EBB, 0x2E86: 0x5F41, 0x2E87: 0x9F98,
+  0x2E88: 0x5200, 0x2E8A: 0x535C, 0x2E8B: 0x353E, 0x2E8C: 0x5B50, 0x2E8D: 0x5B53, 0x2E8E: 0x5C0F,
+  0x2E8F: 0x5C22, 0x2E90: 0x5C38, 0x2E91: 0x5C71, 0x2E92: 0x5DD2, 0x2E93: 0x5DF3, 0x2E94: 0x5DF4,
+  0x2E95: 0x5E7A, 0x2E96: 0x5DE2, 0x2E97: 0x5EFE, 0x2E98: 0x5F50, 0x2E99: 0x5F61, 0x2E9B: 0x5EF3,
+  0x2E9C: 0x65E5, 0x2E9D: 0x6708, 0x2E9E: 0x6B63, 0x2E9F: 0x6BCD, 0x2EA0: 0x6C11, 0x2EA1: 0x6C35,
+  0x2EA2: 0x6C3A, 0x2EA3: 0x706B, 0x2EA4: 0x722A, 0x2EA5: 0x7236, 0x2EA6: 0x725B, 0x2EA7: 0x72AC,
+  0x2EA8: 0x738B, 0x2EA9: 0x7384, 0x2EAA: 0x74DC, 0x2EAB: 0x74E6, 0x2EAC: 0x7518, 0x2EAD: 0x751F,
+  0x2EAE: 0x7528, 0x2EAF: 0x7530, 0x2EB0: 0x758B, 0x2EB1: 0x767D, 0x2EB2: 0x76AE, 0x2EB3: 0x76BF,
+  0x2EB4: 0x76CA, 0x2EB5: 0x76DB, 0x2EB6: 0x76E3, 0x2EB7: 0x76F4, 0x2EB8: 0x7701, 0x2EB9: 0x77E2,
+  0x2EBA: 0x77F3, 0x2EBB: 0x793A, 0x2EBC: 0x8089, 0x2EBD: 0x81E3, 0x2EBE: 0x81EA, 0x2EBF: 0x81F3,
+  0x2EC0: 0x81FC, 0x2EC1: 0x820C, 0x2EC2: 0x8218, 0x2EC3: 0x826E, 0x2EC4: 0x8272, 0x2EC5: 0x864D,
+  0x2EC6: 0x866B, 0x2EC7: 0x8840, 0x2EC8: 0x884C, 0x2EC9: 0x8863, 0x2ECA: 0x897E, 0x2ECB: 0x8A00,
+  0x2ECC: 0x8FB6, 0x2ECD: 0x8FB6, 0x2ECE: 0x8FB6, 0x2ECF: 0x9091, 0x2ED0: 0x91D1, 0x2ED1: 0x9577,
+  0x2ED2: 0x9580, 0x2ED3: 0x961C, 0x2ED4: 0x96B6, 0x2ED5: 0x961D, 0x2ED6: 0x96B9, 0x2ED7: 0x96E8,
+  0x2ED8: 0x9752, 0x2ED9: 0x975E, 0x2EDA: 0x9762, 0x2EDB: 0x9769, 0x2EDC: 0x97CB, 0x2EDD: 0x97ED,
+  0x2EDE: 0x97F3, 0x2EDF: 0x9801, 0x2EE0: 0x98A8, 0x2EE1: 0x98DB, 0x2EE2: 0x98DF, 0x2EE3: 0x9996,
+  0x2EE4: 0x9999, 0x2EE5: 0x99AC, 0x2EE6: 0x9AA8, 0x2EE7: 0x9AD8, 0x2EE8: 0x9ADF, 0x2EE9: 0x9B25,
+  0x2EEA: 0x9B2F, 0x2EEB: 0x9B32, 0x2EEC: 0x9B3C, 0x2EED: 0x9B5A, 0x2EEE: 0x9CE5, 0x2EEF: 0x9E75,
+  0x2EF0: 0x9E7F, 0x2EF1: 0x9E93, 0x2EF2: 0x9EA5, 0x2EF3: 0x9EBB,
+  /* CJK 相容字符：同一個部件的另一種編碼，全庫各只有 0～4 個字在用 */
+  0xFA0C: 0x5140, 0xFA0D: 0x55C0, 0xFA0E: 0x9F9C, 0xFA0F: 0x5DE2, 0xFA10: 0x585A, 0xFA11: 0x5C6E,
+  0xFA12: 0x6C2B, 0xFA13: 0x6C2B, 0xFA14: 0x7387, 0xFA15: 0x7572, 0xFA16: 0x8C6C, 0xFA17: 0x9CE5,
+  0xFA18: 0x793C, 0xFA19: 0x795E, 0xFA1A: 0x7965, 0xFA1B: 0x798F, 0xFA1C: 0x9756, 0xFA1D: 0x7CBE,
+  0xFA1E: 0x7FBD, 0xFA20: 0x8612, 0xFA21: 0x8728, 0xFA22: 0x8AF7, 0xFA23: 0x8AF7, 0xFA24: 0x8B39,
+  0xFA25: 0x8C55, 0xFA26: 0x8C7A, 0xFA27: 0x9813, 0xFA28: 0x9838, 0xFA29: 0x9838, 0xFA2A: 0x98EF,
+  0xFA2B: 0x98FC, 0xFA2C: 0x9928, 0xFA2D: 0x9DB4, 0xFA30: 0x4FAE, 0xFA31: 0x50E7, 0xFA32: 0x514D,
+  0xFA33: 0x52C9, 0xFA34: 0x52E4, 0xFA35: 0x5351, 0xFA36: 0x559D, 0xFA37: 0x5606, 0xFA38: 0x5668,
+  0xFA39: 0x5840, 0xFA3A: 0x58A8, 0xFA3B: 0x5C64, 0xFA3C: 0x5C6E, 0xFA3D: 0x6094, 0xFA3E: 0x6168,
+  0xFA3F: 0x618E, 0xFA40: 0x61F2, 0xFA41: 0x654F, 0xFA42: 0x65E2, 0xFA43: 0x6691, 0xFA44: 0x6885,
+  0xFA45: 0x6D77, 0xFA46: 0x6E1A, 0xFA47: 0x6F22, 0xFA48: 0x716E, 0xFA49: 0x722B, 0xFA4A: 0x7422,
+  0xFA4B: 0x7891, 0xFA4C: 0x793E, 0xFA4D: 0x7949, 0xFA4E: 0x7948, 0xFA4F: 0x7950, 0xFA50: 0x7956,
+  0xFA51: 0x795D, 0xFA52: 0x798D, 0xFA53: 0x798E, 0xFA54: 0x7A40, 0xFA55: 0x7A81, 0xFA56: 0x7BC0,
+  0xFA57: 0x7DF4, 0xFA58: 0x7E09, 0xFA59: 0x7E41, 0xFA5A: 0x7F72, 0xFA5B: 0x8005, 0xFA5C: 0x81ED,
+  0xFA5D: 0x8279, 0xFA5E: 0x8279, 0xFA5F: 0x8457, 0xFA60: 0x8910, 0xFA61: 0x8996, 0xFA62: 0x8B01,
+  0xFA63: 0x8B39, 0xFA64: 0x8CD3, 0xFA65: 0x8D08, 0xFA66: 0x8FB6, 0xFA67: 0x8FB6, 0xFA68: 0x96E3,
+  0xFA69: 0x97FF, 0xFA6A: 0x983B,
+  /* 常見偏旁（同一個部件的不同碼位） */
+  0x4EBA: 0x4EBB, 0x4EBB: 0x4EBA, 0x624B: 0x624C, 0x624C: 0x624B, 0x6C34: 0x6C35, 0x6C35: 0x6C34,
+  0x6C3A: 0x6C34, 0x5FC3: 0x5FC4, 0x5FC4: 0x5FC3, 0x72AD: 0x72AC, 0x793B: 0x793A, 0x7CF9: 0x7CF8,
+  0x7E9F: 0x7CF8, 0x8BA0: 0x8A00, 0x8EBB: 0x8FB6, 0x9485: 0x91D1, 0x9484: 0x91D1, 0x9581: 0x99AC,
+  0x961E: 0x961C, 0x9A6C: 0x99AC, 0x9C7C: 0x9B5A, 0x9E1F: 0x9CE5, 0x9EA6: 0x9EA5
+};
+
+/* 第 67 輪：**異體知識收攏成一份**——把字庫 v5 的 `syn`（跨碼位異體，1,259 對）併進這張表
+   （查不到才用上面手寫的那幾十對）。`syn` 是分組，這裡統一取「同組最小碼位」當代表，
+   與 `component-boxes.ts` 的 `synKeyOf()`（連通分量）一致；已存在的鍵不覆寫，保持手寫表的優先。 */
+(function () {
+  try {
+    if (!LIB || !LIB.syn || typeof LIB.syn.forEach !== "function") return;
+    var n = 0;
+    LIB.syn.forEach(function (list, a) {
+      var rep = a;
+      for (var i = 0; i < list.length; i++) if (list[i] < rep) rep = list[i];
+      if (rep === a) return;
+      if (RADICAL_SYN[a] === undefined) { RADICAL_SYN[a] = rep; n++; }
+    });
+    if (typeof console !== "undefined" && console.log) console.log("[syn] 併入字庫異體 " + n + " 筆");
+  } catch (e) { /* 併不進去也不影響原本行為 */ }
+})();
+
+/** 一個部件字元搜尋時要一起查的碼位：自己、家族成員、以及綁在一起的相容異體。 */
+var synCache = new Map();
+function synCps(cp) {
+  var hit = synCache.get(cp);
+  if (hit) return hit;
+  var out = [];
+  var add = function (c) { if (c && out.indexOf(c) < 0) out.push(c); };
+  add(cp);
+  var canon = RADICAL_SYN[cp];
+  add(canon);
+  for (var k in RADICAL_SYN) {
+    var kk = Number(k), vv = RADICAL_SYN[k];
+    if (kk === cp || vv === cp) { add(kk); add(vv); }
+    if (canon !== undefined && (kk === canon || vv === canon)) { add(kk); add(vv); }
+  }
+  add(RADICAL_SYN[out[1]]);
+  var fam = familyMembers(LIB, cp);
+  for (var f = 0; f < fam.length; f++) add(codePointOf(LIB, fam[f]));
+  synCache.set(cp, out);
+  return out;
+}
+
+/** 這個字形在畫面上要當成哪個部件字元。
+    只有相容碼位時（`進` 引用 `辶`，它的 IDS 是 `⻌ U+2ECC`），
+    沿著 IDS ＋ 相容表換成使用者認得的寫法（`辶`）。 */
+function compCharOf(idx) {
+  var cp = codePointOf(LIB, idx);
+  if (!cp) return "";
+  if (RADICAL_SYN[cp] === undefined) return String.fromCodePoint(cp);
+  var ids = LIB.comp ? LIB.comp.get(cp) : null;
+  if (ids && ids.length) {
+    var c0 = ids[0];
+    var canon = RADICAL_SYN[c0] !== undefined ? RADICAL_SYN[c0] : c0;
+    if (canon && RADICAL_SYN[canon] === undefined) return String.fromCodePoint(canon);
+  }
+  var direct = RADICAL_SYN[cp];
+  return direct !== undefined ? String.fromCodePoint(direct) : String.fromCodePoint(cp);
+}
+
+/* ============================ 構形序列（替換法） ============================ */
+/* 讀法就是 free-compose 的 `base + 舊部件 + 新內容…`（見 free-compose.ts 檔頭）。
+ * 判斷只有**兩條規則**，規格舉的兩個例子就是這兩條：
+ *   ① 整串求得出一個字形（`evalSeq` 會走整棵引用樹找槽位）→ 就畫它。
+ *   ② 求不出來，但前綴是「基字 ＋ 一個換得動的部件」→ 中間狀態（已指名要換掉哪個部件）。
+ *   ③ 其餘 → 當成部件搜尋（規格第 7 條）。
+ * 舊寫法把「舊部件必須是**直接**引用」當閘門是錯的：`邏` 的直接引用是 `辶 羅`，
+ * 而 `羅` 的子樹裡還有 `罒 維`，引擎的 `applyReplace()` 走的是整棵樹。
+ * 第二個坑是**比字形索引**：同一個字在庫裡有多個字形（`䴺` 引用 g1ca5 的 `麥`，
+ * 打「麥」卻是 g1ca4），索引對不上就永遠走不進②——`canReplaceCp()` 問的是引擎。 */
+
+var lastEval = null;
+/** 上一次的標籤模式（`empty`／`good`／`find`），用來決定要不要閃一下輸入區。 */
+var lastLabelMode = null;
+
+function legalizeSeq(seq) {
+  var tryEval = function (s) {
+    /* **參數順序是（lib, expr, opt）**——寫反了不會報錯，
+       只會得到「空的構形序列」（`Array.from(字庫物件)` 是空的），查半天。 */
+    try { return evalSeq(LIB, s, {}); } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+  };
+  var full = tryEval(seq);
+  if (full.ok) return { mode: "ok", seq: seq, eval: full };
+  for (var guard = 0; guard < 8 && seq.length > 2; guard++) {
+    seq = seq.slice(0, -1);
+    var m = tryEval(seq);
+    if (m.ok) return { mode: "ok", seq: seq, eval: m };
+  }
+  return null;
+}
+
+/** 基字的**直接** KAGE 引用（替換法只換得動引用節點：IDS 補的部件是原始筆劃，沒有槽位）。 */
+function refKidsOf(gi) {
+  var g = LIB.glyphs[gi], out = [];
+  if (!g) return out;
+  for (var k = 0; k < g.strokes.length; k++) {
+    var s = g.strokes[k];
+    if (s.kind === 99 && s.ref !== null) out.push(s.ref);
+  }
+  return out;
+}
+
+/** 基字到樹裡每個部件的層級（基字 0、直接引用 1、再下一層 2…）。 */
+function levelMapOf(gi) {
+  var lev = new Map([[gi, 0]]), q = [gi];
+  while (q.length) {
+    var i = q.shift(), d = lev.get(i);
+    if (d > 12) continue;
+    var kids = refKidsOf(i);
+    for (var k = 0; k < kids.length; k++) {
+      if (lev.has(kids[k])) continue;
+      lev.set(kids[k], d + 1);
+      q.push(kids[k]);
+    }
+  }
+  return lev;
+}
+
+function evalInput(seq) {
+  var raw = String(seq).trim();                /* 檢字條件要保留運算子（`木/` 的 `/`） */
+  var noSpace = raw.replace(/\s+/g, "");       /* 字元判讀用（濾掉空白） */
+  if (noSpace.length === 0) return { mode: "empty" };
+  var chars = Array.from(noSpace);
+  /* ★ 師父第 122 輪：輸入區要**接受 Unicode IDS**（U+2FF0–2FFF 的構字算子 ✓）——
+     有的話就**推薦更好的構形序** ✓。⚠ IDS 不是構形序 ✗：這條路只推薦 ✓、不直接組字 ✓。 */
+  var ops = idsOperators(noSpace);
+  if (ops) {
+    var lk = idsLeafKey(noSpace);
+    var hits = lk ? (leafIndexOf(lk) || []) : [];
+    return { mode: "ids", ids: noSpace, ops: ops, chars: chars, leafKey: lk, hits: hits,
+             recommend: idsRecommend(noSpace), note: "IDS：" + ops };
+  }
+  var baseIdx = glyphIndexOf(chars[0]);
+  var labels = labelSet(chars);
+  /* 檢字關鍵字與搜尋字串。
+     * 顯示用的 `kw`：輸入區**最後一個字**。
+     * 搜尋用的 `q`（規則與理由）：
+         1. 只有一個字元 → 用整串（含 `木/`、`/木`、`4木日` 這種單字元查詢）
+         2. 含有運算子或數字 → **整串**交給 `parseSearch()`（`口口`、`4木日`、
+            `木+`、`/木` 都是 glyph-browser 的語法，要一起解）
+         3. 第一個字是**庫裡有部件的基字**、而且後面沒再出現它
+            （例「進辶」＝輸入區正在拼形，基字是進、要查的是辶）
+            → 只查**最後一個字**（含辶的 2,038 個，不是「同時含進與辶」的 18 個）
+         4. 其餘 → 整串（`木日`＝同時含木與日，深層交集） */
+  var kw = chars[chars.length - 1] || chars[0];
+  var hasOp = /[+/0-9]/.test(noSpace);
+  var firstIx = glyphIndexOf(chars[0]);
+  var firstElsewhere = false;
+  for (var fi = 1; fi < chars.length; fi++) if (chars[fi] === chars[0]) { firstElsewhere = true; break; }
+  var basePrefix = !hasOp && chars.length >= 2 && !firstElsewhere &&
+    firstIx !== undefined && hasComponents(LIB, firstIx);
+  var q;
+  if (noSpace.length === 1 || hasOp || !basePrefix) q = noSpace;
+  else q = kw;
+  if (baseIdx === undefined) {
+    return { mode: "search", chars: chars, term: kw, q: q, owner: chars[0],
+             note: "「" + chars[0] + "」不在字庫中", labels: labels };
+  }
+  /* 只有一個字：**它是基字也是檢字條件**。
+     使用者說「輸入合，要列出所有含合的字」——`合` 有部件（口），但它同時是很好的
+     檢字條件，所以單字一律**兩種都給**：大字畫它、部件序列列它的部件、下面列出含它的字。
+     獨體字（`木`）沒有部件可列，那就只畫大字 ＋ 列字（標籤也走檢字那一路）。 */
+  if (chars.length === 1) {
+    return { mode: "ok", chars: chars, owner: chars[0], labels: labels, single: true,
+             showList: true, listTerm: noSpace,
+             eval: { ok: true, lib: LIB, targetIdx: baseIdx, log: [], substituted: false } };
+  }
+
+  /* ① 整串求得出一個字形 → 畫它。
+     但基字底下**只有「基字＋一個直接部件」**時要走規則②，
+     否則「邏羅」會被 evalSeq 讀成別的讀法而落到搜尋去。 */
+  var r = evalSeq(LIB, seq, {});
+  if (r.ok) {
+    if (chars.length === 2) {
+      var oldIx = glyphIndexOf(chars[1]);
+      if (oldIx === undefined || !containsIdx(refKidsOf(baseIdx), oldIx)) {
+        return { mode: "search", chars: chars, term: kw, q: q, owner: chars[0],
+                 note: "「" + chars[1] + "」不是「" + chars[0] + "」的部件", labels: labels };
+      }
+    }
+    return { mode: "ok", chars: chars, owner: ownerFor(chars, baseIdx), labels: labels, eval: r };
+  }
+  var lg = legalizeSeq(seq);
+  if (lg) return { mode: "ok", chars: chars, owner: ownerFor(chars, baseIdx), labels: labels, eval: lg.eval };
+
+  /* ② 前綴是「基字 ＋ 一個**換得動**的部件」→ 中間狀態（已指名要換掉哪個部件）。
+     條件用 `canReplaceCp()`（引擎 `applyReplace()` 的乾跑），**不要只比對
+     「KAGE 直接引用的字形索引」**：
+       * 同一個字在庫裡常常有多個字形——`䴺` 引用的是 `麥` 的 g1ca5，而打「麥」
+         拿到的是 g1ca4。比索引永遠對不上，`䴺麥` 就落到③變成「含麥的字」317 個，
+         使用者以為在部件清單點一下沒作用。
+       * `寶` 的 `缶`、`報` 的 `土` 是 **IDS 槽位**（引擎從筆畫反推得出來、換得動），
+         但它們不是 KAGE 直接引用——舊條件同樣會落到③（查含缶／含土的字）。
+     反過來 `進辶`（引用是相容碼位 `辶`，引擎真的換不動）仍然走③＝查含辶的字，
+     那是規格第 7 條要的動線，不能一起放進來。 */
+  var oldIx2 = glyphIndexOf(chars[1]);
+  if (oldIx2 !== undefined && canReplaceCp(LIB, baseIdx, chars[1].codePointAt(0))) {
+    return { mode: "partial", chars: chars, ready: true, baseIdx: baseIdx,
+             baseCh: chars[0], oldCh: chars[1], slotCh: chars[1], note: r.error || "",
+             owner: chars[0], labels: labels,
+             eval: { ok: true, lib: LIB, targetIdx: baseIdx, log: [], substituted: false } };
+  }
+
+  /* ③ 其餘 → 部件搜尋。
+     三個字以上＝使用者是在拼形（不是在查部件），組不出來時**要把引擎的理由說出來**：
+     輸入「報土业」時 `土` 根本不在 報 的 KAGE 樹裡（它在 幸 的筆畫裡），
+     只顯示「業 的檢字」會讓使用者以為自己打錯字（使用者回報）。
+     兩個字（`報土`）是打到一半的中間狀態，不要吵。 */
+  return { mode: "search", chars: chars, term: kw, q: q, owner: chars[0],
+           reason: chars.length >= 3 ? (r.error || "") : "",
+           note: "「" + chars[1] + "」不是「" + chars[0] + "」的部件", labels: labels };
+}
+
+/** 輸入區左邊的標籤：空白＝「剎那拼形」（醒目色）、合法拼形式＝「合理拼形」、
+    其餘＝「部件檢字」。 */
+function labelSet(chars) {
+  return (chars || []).join("");
+}
+
+/** 部件序列要畫**哪個字**的部件。
+ *
+ *  使用者的要求：**隨輸入區的光標改變**——「颰犮电」把光標移到基字之後，
+ *  就要看得到 颰 的部件（風、犮）才能換掉它。
+ *  所以取「光標前一個字」；沒有光標資訊（還沒 focus 過）才退回最後一個字。
+ *  該字是獨體字（沒有部件）時退回上一個有部件的位置。 */
+function seqOwnerChar(st, seq) {
+  var chars = Array.from(seq);
+  if (!chars.length) return "";
+  var at = cursorCharIx(seq);                       /* 光標前一個字的位置（-1＝最前面） */
+  for (var i = at; i >= 0; i--) {
+    var gi = glyphIndexOf(chars[i]);
+    if (gi !== undefined && hasComponents(LIB, gi)) return chars[i];
+  }
+  for (var j = chars.length - 1; j > at; j--) {
+    var gj = glyphIndexOf(chars[j]);
+    if (gj !== undefined && hasComponents(LIB, gj)) return chars[j];
+  }
+  if (st && st.owner) return st.owner;
+  return chars[0];
+}
+
+/** 光標前一個字在 chars 裡的索引（光標在最前面＝-1）。
+    `selectionStart` 是 UTF-16 索引，要先換算成「第幾個字」。 */
+function cursorCharIx(seq) {
+  var el = $("seq");
+  var pos = (el && el.selectionStart !== undefined && el.selectionStart !== null)
+    ? el.selectionStart : seq.length;
+  var chars = Array.from(seq);
+  var at = 0, acc = 0;
+  for (var k = 0; k < chars.length; k++) {
+    acc += chars[k].length;
+    if (acc <= pos) at = k + 1; else break;
+  }
+  return at - 1;
+}
+
+/** 部件序列要畫**哪個字**的部件。回傳輸入區裡的那個**字元**。
+    實際邏輯在 `seqOwnerChar()`（跟著光標走），這裡只是給 `evalInput()` 用的別名。 */
+function ownerFor(chars, baseIdx) {
+  void baseIdx;
+  return seqOwnerChar(null, chars.join(""));
+}
+
+function containsIdx(arr, idx) {
+  for (var k = 0; k < arr.length; k++) if (arr[k] === idx) return true;
+  return false;
+}
+
+/* ============================ 深層部件走訪 ============================ */
+/** 一個字形整棵樹的部件節點（`componentKids`：IDS 優先，退回 KAGE 引用）。 */
+function deepComponentsOf(gi) {
+  var seen = new Set([gi]), stack = [gi], out = [];
+  while (stack.length) {
+    var i = stack.pop();
+    var kids = componentKids(LIB, i);
+    for (var k = 0; k < kids.length; k++) {
+      /* **推進去之前就要記**：只記「已處理過的節點」會讓同一個子節點被多個父節點各推一次，
+         同一筆結果重複塞進 out（搜尋結果是照 seen 去重的）。 */
+      if (seen.has(kids[k])) continue;
+      seen.add(kids[k]);
+      out.push(kids[k]);
+      stack.push(kids[k]);
+    }
+  }
+  return out;
+}
+
+/* ============================ 部件搜尋（第 7 條） ============================ */
+/* 深層索引只建一次：部件碼位 → 含它的字（碼位）。191,727 個字形約 300 ms，
+   所以**延後到第一次搜尋**才建。 */
+var DEEP = null, deepMs = 0;
+
+function buildDeepIndex() {
+  if (DEEP) return;
+  var t0 = performance.now();
+  var m = new Map(), seen = new Set();
+  for (var i = 0; i < LIB.glyphs.length; i++) {
+    if (!isPlainIdeograph(LIB, i)) continue;
+    var mine = codePointOf(LIB, i);
+    if (!mine) continue;
+    seen.clear();
+    var comps = deepComponentsOf(i);
+    for (var k = 0; k < comps.length; k++) {
+      var j = comps[k];
+      if (seen.has(j)) continue;
+      seen.add(j);
+      var cp = codePointOf(LIB, j);
+      if (!cp) continue;
+      /* 相容碼位要**同時**以標準碼位登記，否則照 進 的部件格點下去
+         （顯示的是辶）只會查到 4 個字。 */
+      var canon = RADICAL_SYN[cp];
+      var a = m.get(cp);
+      if (a) a.push(mine); else m.set(cp, [mine]);
+      if (canon !== undefined) {
+        var b = m.get(canon);
+        if (b) b.push(mine); else m.set(canon, [mine]);
+      }
+    }
+  }
+  DEEP = m;
+  deepMs = Math.round(performance.now() - t0);
+}
+
+var SEARCH = null;   /* { term, raw, cps, chars, pos, stroke, mult, scanned } */
+
+/** 檢字條件：**搬 glyph-browser 已經實作好的那套語法**（使用者：「請參考
+ *  glyph-browser.html 已實作好的功能」）。它在那裡已經被驗收釘住，這裡只是搬到
+ *  同一個輸入區共用（`?comp=` 那條路也是同一組語意）。
+ *
+ *    木+ / +木    木在左／右
+ *    木/ / /木    木在上／下（使用者的「/ 木」＝木在上）
+ *    口木         同時含口與木（往深處找）
+ *    口口         口要出現兩次
+ *    4木日        扣掉木、日之後剩 4 畫
+ *    U+908F       直接看那個碼位
+ *
+ *  回傳 `{ terms, mult, pos, stroke }`。 */
+function parseSearch(raw) {
+  var s = String(raw).replace(/\s+/g, "");
+  var n = null, digits = "", terms = [], mult = [], pos = null;
+  var pts = Array.from(s);
+  for (var i = 0; i < pts.length; i++) {
+    var ch = pts[i];
+    if (ch >= "0" && ch <= "9") { digits += ch; continue; }
+    if (ch === "+" || ch === "/") continue;      /* 位置另外看鄰居 */
+    var at = terms.indexOf(ch);
+    if (at < 0) { terms.push(ch); mult.push(1); } else mult[at]++;
+  }
+  if (digits) n = parseInt(digits, 10);
+  /* 位置只在「恰好一個部件」時有意義：運算子代表**另一個部件**在哪一側。
+     所以 `木+`＝木在左、`+木`＝木在右；`木/`＝木在上、`/木`＝木在下。 */
+  if (terms.length === 1) {
+    var plus = s.indexOf("+"), slash = s.indexOf("/");
+    if (plus >= 0 && slash < 0) pos = plus === 0 ? "右" : "左";
+    else if (slash >= 0 && plus < 0) pos = slash === 0 ? "下" : "上";
+  }
+  return { raw: s, term: terms.length ? terms[terms.length - 1] : "", terms: terms, mult: mult, pos: pos, stroke: n };
+}
+
+/** 這個字裡有沒有 `term`、而且在 `pos` 那一側（量墨跡，跟 glyph-browser 同一支 `inkZoneOf`）。 */
+function matchesPos(gi, term, pos) {
+  if (!pos) return true;
+  var slots = refSlotsOf(LIB, gi);
+  for (var i = 0; i < slots.length; i++) {
+    var s = slots[i];
+    if (s.idsOnly || codePointOf(LIB, s.ref) !== term.codePointAt(0)) continue;
+    var z;
+    try { z = inkZoneOf(LIB, gi, s.strokeIx, inkOfRefInParent); } catch (e) { z = s.zone; }
+    if (zoneMatches(z, pos)) return true;
+  }
+  return false;
+}
+
+/** 扣掉部件之後剩幾畫（跟 glyph-browser 同一套：非 99 的線段算 1 畫、99 遞迴）。 */
+var strokeMemo = new Map(), strokeBusy = new Set();
+function strokesOf(i) {
+  var hit = strokeMemo.get(i);
+  if (hit !== undefined) return hit;
+  if (strokeBusy.has(i)) return 0;
+  strokeBusy.add(i);
+  var st = LIB.glyphs[i].strokes, n = 0;
+  for (var k = 0; k < st.length; k++) {
+    var s = st[k];
+    if (s.kind === 99 && s.ref !== null) n += strokesOf(s.ref);
+    else if (s.kind !== 0) n += 1;
+  }
+  strokeBusy.delete(i);
+  strokeMemo.set(i, n);
+  return n;
+}
+
+/** 走完整棵樹數 `target` 這個碼位出現幾次（重複部件用） */
+function countInTree(i, target, seen, depth) {
+  if (depth > 40 || seen.has(i)) return 0;
+  seen.add(i);
+  var kids = componentKids(LIB, i), n = 0;
+  for (var k = 0; k < kids.length; k++) {
+    if (codePointOf(LIB, kids[k]) === target) n++;
+    n += countInTree(kids[k], target, seen, depth + 1);
+  }
+  return n;
+}
+
+/** 部件檢字：拿輸入區整串當**查詢語法**（不是只拿最後一個字），跟 glyph-browser 一致。 */
+function runSearch(raw) {
+  buildDeepIndex();
+  var q = parseSearch(raw);
+  var out = [], seenCp = new Set();
+  if (!q.terms.length && q.stroke === null) {
+    SEARCH = { raw: q.raw, term: "", cps: [], chars: Array.from(String(raw)), q: q };
+    return SEARCH;
+  }
+
+  /* 候選：多個部件取深層交集（跟 glyph-browser 一樣）；沒有部件就只有筆劃數 */
+  var cand = null;
+  if (q.terms.length) {
+    var first = searchCps(q.terms[0]);
+    cand = [];
+    first.forEach(function (cp) { cand.push(cp); });
+    for (var k = 1; k < q.terms.length && cand.length; k++) {
+      var s = searchCps(q.terms[k]);
+      cand = cand.filter(function (x) { return s.has(x); });
+    }
+  } else {
+    cand = [];
+    for (var i = 0; i < LIB.glyphs.length; i++) if (isPlainIdeograph(LIB, i)) cand.push(codePointOf(LIB, i));
+  }
+
+  /* 扣掉部件之後剩幾畫：查詢裡寫了幾次就扣幾次 */
+  var sub = 0;
+  for (var t = 0; t < q.terms.length; t++) {
+    var ti = glyphIndexOf(q.terms[t]);
+    if (ti !== undefined) sub += strokesOf(ti) * q.mult[t];
+  }
+  /* 重複部件要真的出現那麼多次 */
+  var reps = [];
+  for (var r = 0; r < q.terms.length; r++) if (q.mult[r] > 1) reps.push([q.terms[r].codePointAt(0), q.mult[r]]);
+
+  for (var c = 0; c < cand.length; c++) {
+    var cp = cand[c];
+    if (!cp || seenCp.has(cp)) continue;
+    var gi = indexOfCodePoint(LIB, cp);
+    if (gi === undefined) continue;
+    if (q.pos && !matchesPos(gi, q.terms[0], q.pos)) continue;
+    var bad = false;
+    for (var rr = 0; rr < reps.length; rr++) {
+      if (countInTree(gi, reps[rr][0], new Set(), 0) < reps[rr][1]) { bad = true; break; }
+    }
+    if (bad) continue;
+    if (q.stroke !== null && strokesOf(gi) - sub !== q.stroke) continue;
+    seenCp.add(cp);
+    out.push(cp);
+  }
+
+  out.sort(function (a, b) {
+    /* 一般漢字排最前面，同組再按碼位 */
+    var ai = indexOfCodePoint(LIB, a), bi = indexOfCodePoint(LIB, b);
+    var ap = ai !== undefined && isPlainIdeograph(LIB, ai) ? 0 : 1;
+    var bp = bi !== undefined && isPlainIdeograph(LIB, bi) ? 0 : 1;
+    return ap - bp || a - b;
+  });
+  SEARCH = { raw: q.raw, term: q.term, cps: out, chars: Array.from(String(raw)), q: q, scanned: cand.length };
+  return SEARCH;
+}
+
+/** 檢字條件的說明文字（跟 glyph-browser 的 `queryLabel()` 同一套講法）。 */
+function searchLabel(q) {
+  if (!q) return "";
+  var s = "";
+  if (q.terms.length) {
+    s = q.terms.map(function (c) { return "「" + c + "」"; }).join("");
+    if (q.pos) s += "在" + q.pos;
+  }
+  if (q.stroke !== null) s += (s ? "　" : "") + "扣掉部件後剩 " + q.stroke + " 畫";
+  return s || q.raw;
+}
+
+/** 「含這個部件」的字（碼位集合）：同一個部件的所有相容碼位的命中聯集。 */
+function searchCps(ch) {
+  var cp = ch ? ch.codePointAt(0) : undefined;
+  var set = new Set();
+  if (cp === undefined || !DEEP) return set;
+  var cps = synCps(cp);
+  for (var k = 0; k < cps.length; k++) {
+    var list = DEEP.get(cps[k]);
+    if (!list) continue;
+    for (var j = 0; j < list.length; j++) set.add(list[j]);
+  }
+  return set;
+}
+
+/* 候選格：一次只畫 CAND_MAX 個（全庫一次畫完要 25 秒，見 build-glyph-browser.ts 檔頭） */
+var CAND_MAX = 96, candShown = 96;
+
+function candCellHtml(cp) {
+  var idx = indexOfCodePoint(LIB, cp);
+  if (idx === undefined) return "";
+  return '<div class="cell cand" data-cp="' + cp + '" title="' + hex(cp) + '">' +
+    '<div class="g">' + glyphSvg(idx) + "</div>" +
+    '<div class="c">' + hex(cp).replace("U+", "") + "</div></div>";
+}
+
+function renderSearch() {
+  var el = $("cands"), note = $("candNote");
+  if (!SEARCH) {
+    el.innerHTML = "";
+    note.textContent = "";
+    $("candSec").hidden = true;
+    $("stockSec").hidden = false;
+    return;
+  }
+  var n = SEARCH.cps.length;
+  var shown = SEARCH.cps.slice(0, candShown);
+  var html = "";
+  for (var k = 0; k < shown.length; k++) html += candCellHtml(shown[k]);
+  el.innerHTML = html;
+  $("candSec").hidden = false;
+  /* 有候選字時**把庫存拼形收起來**（使用者的要求：手機畫面有限） */
+  $("stockSec").hidden = n > 0;
+  note.textContent = (searchLabel(SEARCH.q) || "含「" + SEARCH.term + "」") + "：" +
+    n.toLocaleString() + " 個" +
+    (n > shown.length ? "（顯示前 " + shown.length + " 個）" : "") +
+    (deepMs ? "　索引 " + deepMs + " ms" : "");
+  $("moreBtn").hidden = n <= shown.length;
+}
+
+/* ============================ 部件序列 ============================ */
+/** 這個字形畫得出來的**一階**部件（依 KAGE 引用，再補 IDS 補上的那些）。
+ *
+ *  只取一階是有意的：`颰`＝風＋犮，列風、犮就夠；再往下一層（風 的 IDS 有 𠘨、
+ *  犮 有 丶）就變噪音了。使用者的要求是「輸入進要看得到隹」——
+ *  而 `進` 的 KAGE 直接引用只有 `辶`（字形 g1dbz），`隹` 是 IDS 補的，
+ *  所以**兩邊都要**：KAGE 引用（有槽位）∪ 它與逐層 IDS 分解裡沒有槽位的內嵌部件。
+ *  實測結果：`合`→口、`進`→辶 隹、`颰`→風 犮、`邏`→辶 羅、`寶`→𡩧 貝 缶 𡪓、`初`→衤 刀。
+ *
+ *  每一格帶：
+ *    `ch`       顯示用的部件字元（相容碼位換成標準寫法）
+ *    `parent`   要換掉它時，輸入區該寫的字（有槽位＝自己；內嵌部件＝掛它的那個節點）
+ *    `box`      KAGE 框的序號（沒有自己的框＝-1，清單上標 IDS）
+ *    `idsOnly`  沒有可替換的槽位
+ *    `stuck`    IDS 補的部件，但**引擎換不掉**（`canReplaceCp()` 說不行）→ 列出來但不可點
+ */
+function componentChips(gi) {
+  var boxes = boxesOfGlyph(gi);
+  var out = [], seenName = {}, seen = new Set([gi]);
+  var boxOfRef = {};
+  for (var k = 0; k < boxes.length; k++) {
+    if (!boxes[k].idsOnly && boxOfRef[boxes[k].ref] === undefined) boxOfRef[boxes[k].ref] = boxes[k].order;
+  }
+  var rootCh = compCharOf(gi);
+
+  /* 有槽位的部件字元＝**KAGE 直接引用**那一批（只算第一階）。
+     這是要扣掉 IDS 那一側的重複：`邏` 的 IDS 也寫了「羅 辶」，那兩個已經在 KAGE 清單裡了。
+     **不可以遞迴整棵樹**——那樣 `隹`（藏 進→辶→… 深處）、`缶`（藏 寶→𡩧→珤 深處）
+     全都會被當成「有槽位」而濾掉，清單就只剩第一階。 */
+  var hasSlot = {};
+  for (var s0 = 0; s0 < boxes.length; s0++) {
+    if (!boxes[s0].idsOnly) hasSlot[compCharOf(boxes[s0].ref)] = 1;
+  }
+  /* 有 KAGE 子節點的直接引用。**用字形索引當鍵，不要用部件字元**：
+     `峰` 的最後一個直接引用是 `夆`，而 `夆` 的子節點裡剛好也有一個「山」
+     （與 `峰` 的另一個直接引用同名）——用字元當鍵會讓整批被誤判，
+     丰／夂 就又冒出來了（實測就是這樣）。 */
+  var hasKidRef = new Set();
+  for (var s1 = 0; s1 < boxes.length; s1++) {
+    if (!boxes[s1].idsOnly && refKidsOf(boxes[s1].ref).length) hasKidRef.add(boxes[s1].ref);
+  }
+
+  /** `ch` 可以是空字串：**沒有碼位、也沒有 IDS 的部件**（例：`從` 的第二個部件
+      是 `g40la`，一個純筆劃字形）。那種部件畫得出來、但沒有名字可以打進輸入區，
+      所以照樣列出來（讓使用者看得到整個結構）但**不可點**。 */
+  var add = function (ch, parent, box, isIds, ref) {
+    if (seenName[ch]) return false;
+    if (isIds && hasSlot[ch]) return false;        /* 有槽位的會由 KAGE 那一側列出 */
+    seenName[ch] = 1;
+    /* 這一格點下去**到底有沒有結果**：IDS 補的部件沒有槽位，要問引擎
+       （`canReplaceCp()`＝`applyReplace()` 的乾跑）。
+       換不動的照樣列出來（看得到才不會以為漏了整個結構），但**不可點**——
+       否則使用者會走進「選了卻永遠換不掉」的死路（回報：`䴺` 點 `來` → `䴺來` →
+       打 `去` → `䴺來去` 引擎說換不到）。
+       有槽位的（KAGE 直接引用）**一律可點**：即使它的字元是相容碼位
+       （`進` 顯示 `辶`、引用其實是 `辶`），點下去仍然有意義（＝指名換掉它／查含它的字）。 */
+    var stuck = isIds && !!ch && !canReplaceCp(LIB, gi, ch.codePointAt(0));
+    out.push({ ch: ch, parent: parent, box: box === undefined ? -1 : box,
+               idsOnly: box < 0, ref: ref === undefined ? -1 : ref, stuck: stuck });
+    return true;
+  };
+
+  /* 第一階：KAGE 直接引用（有槽位） */
+  for (var b0 = 0; b0 < boxes.length; b0++) {
+    var br = boxes[b0];
+    if (br.idsOnly || seen.has(br.ref)) continue;
+    if (add(compCharOf(br.ref), compCharOf(br.ref), br.order, false, br.ref)) seen.add(br.ref);
+  }
+  /* IDS 補的內嵌部件（沒有 KAGE 槽位的那種）。
+     只往「**沒有自己子節點**的引用」裡看一層，不再往下遞迴：
+       `邏`→辶羅（羅 有子節點，不再展開，否則多出 罒／維）
+       `進`→辶隹（辶 沒有子節點 → 看它的 IDS，得到隹）
+       `寶`→𡩧貝缶𡪓（𡩧 沒有子節點 → 缶、𡪓）
+       `從`→彳∅（∅ 沒有子節點，但它沒有碼位，列出來但不可點）
+     再往下一層就變噪音（`峰` 會多出 丰／夂、`雨` 會多出四個 丶）——使用者回報的
+     「峰夆電雨水的部件清單很奇怪」就是這個。 */
+  var layer = [gi];
+  for (var b1 = 0; b1 < boxes.length; b1++) {
+    if (boxes[b1].idsOnly) continue;
+    if (hasKidRef.has(boxes[b1].ref)) continue;   /* 它自己有子節點 → 不展開 IDS */
+    layer.push(boxes[b1].ref);
+  }
+  for (var q = 0; q < layer.length; q++) {
+    var node = layer[q], nch = q === 0 ? rootCh : compCharOf(node);
+    var cp2 = codePointOf(LIB, node);
+    var ids2 = cp2 && LIB.comp ? LIB.comp.get(cp2) : null;
+    if (!ids2) continue;
+    for (var m2 = 0; m2 < ids2.length; m2++) {
+      var ci2 = indexOfCodePoint(LIB, ids2[m2]);
+      if (ci2 === undefined || seen.has(ci2)) continue;
+      /* 這個 IDS 部件的字元如果**已經在清單裡**（通常是它整個就是上層已經列出的那個字形，
+         例：`電` 的 雨 —— KAGE 只引用 雨，IDS 也寫 雨），就不要重複列。
+         使用者回報「峰夆電雨水的部件清單很奇怪」，`電` 列出「雨 雨(IDS)」就是這一個。 */
+      if (seenName[compCharOf(ci2)]) continue;
+      if (add(compCharOf(ci2), nch, -1, true, ci2)) seen.add(ci2);
+    }
+  }
+  return out;
+}
+
+/** 這個部件在 KAGE 樹裡「掛在哪一個可以直接替換的節點底下」
+    （替換法只換得動引用節點：`寶` 的「缶」要送進輸入區的是 `𡩧`）。 */
+function kageParentOf(baseIdx, ref) {
+  if (ref === undefined || ref < 0) return "";
+  if (containsIdx(refKidsOf(baseIdx), ref)) return "";
+  var ch = compCharOf(ref);
+  if (!ch) return "";
+  var stack = [baseIdx], seen = new Set([baseIdx]);
+  while (stack.length) {
+    var i = stack.pop();
+    var kids = refKidsOf(i);
+    for (var k = 0; k < kids.length; k++) {
+      var j = kids[k];
+      if (seen.has(j)) continue;
+      seen.add(j);
+      var cp = codePointOf(LIB, j);
+      var ids = cp && LIB.comp ? LIB.comp.get(cp) : null;
+      if (ids) {
+        for (var m = 0; m < ids.length; m++) {
+          if (ids[m] === ch.codePointAt(0)) return compCharOf(j);
+        }
+      }
+      stack.push(j);
+    }
+  }
+  return "";
+}
+
+/* ================= 建議更好的基字（第 111 輪） =================
+ *
+ * 客人輸入「初衤禾」（把 `初` 的 `衤` 換成 `禾`）時，結果的**部件序列**是「禾＋刀」，
+ * 但 `初` 的左槽本來是為 `衤` 準備的 ✗；而「利刂刀」的結果是**同一個序列**（禾＋刀），
+ * `利` 的左半本來就是左形的 `禾`、右槽是為 `刂`（刀的右形）準備的 ✓ → 好看得多 ✓。
+ *
+ * 所以：找出**同一個部件序列（模形式差異）**的字，讓客人**自己挑**要不要改用它當基字 ✓。
+ *   · 「形式」由 `out/form-groups.json`（`__FORM_GROUPS__` 內嵌）回答 ✓
+ *     ——`刂→刀`、`扌→手`、`釒→金`、`讠→言`…（來源見 tools/form-groups.ts ✓）
+ *   · **只建議引擎真的換得動的**（`canReplaceCp()` 乾跑 ✓）——清單說可以、做卻失敗是地獄 ✗
+ *   · **一律不自動改**：建議只是按鈕，客人點了才換 ✓（目標：「讓客人檢視挑擇」✓）
+ */
+var FORM_GROUPS = __FORM_GROUPS__;
+var SEQ_INDEX = null;
+/** 這個碼位的「本形」（不在形式群裡就回自己） */
+function canonOf(cp) {
+  var g = FORM_GROUPS && FORM_GROUPS.canon;
+  var c = g ? g[cp.toString(16)] : undefined;
+  return c === undefined ? cp : c;
+}
+/** 這條形式關係的人話理由（師父的表 ✓；沒有就回空字串） */
+function formWhy(cp) {
+  var w = FORM_GROUPS && FORM_GROUPS.why;
+  var s = w ? w[cp.toString(16)] : undefined;
+  return s || "";
+}
+/** 「正規化後的部件序列 → 有哪些字」的索引（**第一次要用才建**，約 8 萬個字） */
+function buildSeqIndex() {
+  if (SEQ_INDEX) return SEQ_INDEX;
+  SEQ_INDEX = {};
+  if (LIB.comp) {
+    LIB.comp.forEach(function (comps, cp) {
+      if (!comps || !comps.length || comps.length > 8) return;
+      var key = "", i;
+      for (i = 0; i < comps.length; i++) key += (i ? "," : "") + canonOf(comps[i]);
+      var list = SEQ_INDEX[key];
+      if (list) list.push(cp); else SEQ_INDEX[key] = [cp];
+    });
+  }
+  return SEQ_INDEX;
+}
+/** 建議：同一個部件序列、但形式更好的基字（最多 3 個） */
+function suggestBasesFor(chars) {
+  var out = [];
+  if (!chars || chars.length !== 3) return out;          /* 只處理「基字＋舊部件＋單一新部件」✓ */
+  var baseIx = glyphIndexOf(chars[0]);
+  if (baseIx === undefined) return out;
+  var baseCp = codePointOf(LIB, baseIx);
+  if (!baseCp || !LIB.comp) return out;
+  var comps = LIB.comp.get(baseCp);
+  if (!comps || !comps.length) return out;
+  var oldCp = chars[1].codePointAt(0), newCp = chars[2].codePointAt(0);
+  var target = [], tkey = "", i, changed = false;
+  for (i = 0; i < comps.length; i++) {
+    var c = comps[i] === oldCp ? newCp : comps[i];
+    if (comps[i] === oldCp) changed = true;
+    target.push(c);
+    tkey += (i ? "," : "") + canonOf(c);
+  }
+  if (!changed) return out;        /* 舊部件不在序列裡（例：手畫的部件）→ 沒得比 ✓ */
+  var cands = buildSeqIndex()[tkey] || [];
+  for (i = 0; i < cands.length; i++) {
+    var cp = cands[i];
+    if (cp === baseCp) continue;
+    var seq = LIB.comp.get(cp);
+    if (!seq || seq.length !== target.length) continue;
+    var diff = -1, n = 0, j;
+    for (j = 0; j < seq.length; j++) if (seq[j] !== target[j]) { diff = j; n++; }
+    /* ⓪ **完全相同的序列** → 那個字本來就是這個結果 ✓（最強的建議 ✓）。
+       ★ 師父第 119 輪的架構：「客人會先用 BMP 輸入……**但系統明白客人的意圖之後，
+         可以建議 extension 的字呀，兩者並不衝突無須取捨。**」
+         → 所以**非 BMP 也照建議** ✓（那是**點一下**就用的 ✓，不必客人打出來 ✓）；
+           一般漢字區只當**排序加分** ✓。
+       ★★ 但排序是 **BMP 優先、其次才是「本來就是這個字」** ✓——
+         實測：`初衤禾` 若讓非 BMP 的「本來就是這個字」排第一 ✗，
+         會把師父要的 `利刂刀`（BMP、常用 ✓）擠掉 ✗。兩者都給，但**好打的排前面** ✓。 */
+    if (n === 0) {
+      var exBmp = (cp >= 0x4e00 && cp <= 0x9fff);
+      out.push({
+        input: String.fromCodePoint(cp),      /* 直接用那個字，不必換部件 ✓ */
+        fromCh: "", toCh: "", why: "", exact: true, bmp: exBmp,
+        rank: (exBmp ? 10 : 0) + 5,
+      });
+      continue;
+    }
+    if (n !== 1) continue;                               /* 只建議「只差一個形式」的 ✓ */
+    var fromCp = seq[diff], toCp = target[diff];
+    if (canonOf(fromCp) !== canonOf(toCp)) continue;     /* 必須同一個形式群（＝只是異形部件差異 ✓） */
+    var gi = indexOfCodePoint(LIB, cp);
+    if (gi === undefined || !canReplaceCp(LIB, gi, fromCp)) continue;   /* 引擎真的換得動 ✓ */
+    var fromCh = String.fromCodePoint(fromCp), toCh = String.fromCodePoint(toCp);
+    var bmp = (cp >= 0x4e00 && cp <= 0x9fff);
+    out.push({
+      input: String.fromCodePoint(cp) + fromCh + toCh,   /* 建議的輸入字串（照原語法 ✓） */
+      fromCh: fromCh, toCh: toCh, why: formWhy(fromCp), exact: false, bmp: bmp,
+      /* 排序：**BMP 優先** ✓（好打的排前面 ✓）；另一個碼位的形式（`刂`）比同碼 var 更像專用偏旁形 ✓ */
+      rank: (bmp ? 10 : 0) + (fromCp !== canonOf(fromCp) ? 2 : 0),
+    });
+  }
+  out.sort(function (a, b) { return b.rank - a.rank; });
+  /* 最多 6 個：第 1 個在「拼出來的形」那邊**並排**，其餘放庫存區 ✓
+     （師父第 112 輪：「可以讓客人多看到幾個比例」——庫存區的格子同比例，好比較 ✓）。 */
+  return out.slice(0, 6);
+}
+/** 組一個建議字串，並量「墨有沒有搞成一塊」（師父第 112 輪的警告 ✗）。
+ *  （「新部件是第幾筆」用內嵌模組 `ink-conflict.ts` 的 `partStrokeOf` ✓，不要自己再寫一份 ✗）
+ *  回傳 null＝組不出來；否則 `{svg, blob, note}` ✓ */
+function composeSuggestion(input, newCp) {
+  try {
+    var rr = evalSeq(LIB, input, {});
+    if (!rr || !rr.ok) return null;
+    var svg = svgOfLib(rr.lib, rr.targetIdx);
+    var si = partStrokeOf(rr.lib, rr.targetIdx, newCp);
+    if (si < 0) return { svg: svg, blob: false, note: "" };
+    var c = inkConflictOf(rr.lib, rr.targetIdx, si);
+    return { svg: svg, blob: isInkBlob(c), note: inkConflictNote(c) };
+  } catch (e) { return null; }
+}
+
+/** 把「建議／推薦」那兩塊收起來 ✓（IDS 模式與建議列共用 ✓） */
+function clearSuggestRow() {
+  var wrap = $("sugWrap"), stage = $("sugStage"), cap = $("sugCap");
+  var stockBox = $("stockSuggest"), row = $("sugRow");
+  if (wrap) wrap.hidden = true;
+  if (stage) stage.innerHTML = "";
+  if (cap) cap.textContent = "";
+  if (stockBox) stockBox.hidden = true;
+  if (row) row.innerHTML = "";
+}
+
+/** 畫建議（師父第 112 輪的兩個要求）：
+ *  ① **最佳的那個與現在的形並排**（`#sugStage` ＋ `#sugCap`）——客人才看得出好在哪裡 ✓
+ *  ② 其餘的放**下方庫存區**（`#sugRow`，同一個比例所以好比較 ✓）；
+ *     **拼形式放在 hover hint**（`title`），格子裡只畫字形，客人一次可以多看幾個 ✓。
+ *  ⚠ **一律先驗「換完能不能看」**（`inkConflictOf` ✓）：師父第 112 輪指出
+ *    「庚广廣」墨都搞一塊 ✗、「庚广艹」還組不好 ✗——只驗「引擎換得動」是不夠的 ✗。
+ *  ⚠ 一律**點了才換**（不自動改 ✓）；沒有建議時兩處都收起來 ✓。 */
+function renderSuggest(st, r) {
+  var wrap = $("sugWrap"), stage = $("sugStage"), cap = $("sugCap");
+  var stockBox = $("stockSuggest"), row = $("sugRow");
+  var clear = function () {
+    if (wrap) wrap.hidden = true;
+    if (stockBox) stockBox.hidden = true;
+    if (stage) stage.innerHTML = "";
+    if (row) row.innerHTML = "";
+    if (cap) cap.textContent = "";
+  };
+  if (!wrap || !stockBox) return;
+  var sug = (r && r.substituted) ? suggestBasesFor(st.chars) : [];
+  if (!sug.length) { clear(); return; }
+
+  /* 組出建議的形，並**把「墨搞成一塊」的候選剔除** ✗（留著只會害客人 ✓） */
+  var made = [], blobs = 0;
+  for (var i = 0; i < sug.length; i++) {
+    var newCp = sug[i].toCh.codePointAt(0);
+    var got = composeSuggestion(sug[i].input, newCp);
+    if (!got) continue;                       /* 組不出來 → 不建議 ✓ */
+    if (got.blob) { blobs++; continue; }      /* 一團墨 → 不建議 ✓（師父的判例） */
+    made.push({ s: sug[i], svg: got.svg, note: got.note });
+  }
+  if (!made.length) {
+    clear();
+    /* 全部候選都不可用時，講清楚為什麼（不要讓客人以為「沒有更好的」）✓
+       ⚠ 這句要**回傳**給 `render()` 合併，不要直接 toast ✗——不然會蓋掉
+       「客人自己那個組合疊墨」的警告（實測踩到 ✓）。 */
+    return (blobs > 0 && r && r.substituted)
+      ? "有 " + blobs + " 個看起來更好的基字，但換上去墨會疊成一塊 ✗——所以不建議"
+      : "";
+  }
+
+  /* ① 最佳的並排 */
+  var best = made[0];
+  stage.innerHTML = best.svg;
+  stage.setAttribute("data-sug", best.s.input);
+  cap.textContent = best.s.exact
+    ? best.s.input + "（本來就是這個字 ✓）"
+    : best.s.input + "（" + best.s.fromCh + "→" + best.s.toCh + "）";
+  if (!best.s.bmp) cap.textContent += "　非 BMP，可直接點 ✓";
+  wrap.hidden = false;
+
+  /* ② 其餘的放庫存區（拼形式只在 hover hint ✓） */
+  if (made.length > 1) {
+    var html = "";
+    for (var k = 1; k < made.length; k++) {
+      var m = made[k];
+      var tip = m.s.input + "（" + m.s.fromCh + "→" + m.s.toCh + "）" +
+        (m.s.why ? "——" + m.s.why : "");
+      html += '<div class="cell" data-sug="' + m.s.input + '" title="' + tip + '">' + m.svg + "</div>";
+    }
+    row.innerHTML = html;
+    stockBox.hidden = false;
+  } else {
+    row.innerHTML = "";
+    stockBox.hidden = true;
+  }
+  return "";
+}
+
+/** **警告客人：現在這個組合墨疊在一起了**（師父第 112 輪的指示 ✓）。
+ *  只在「原地換一個部件」的結果上量（真字的畫法不會有這個問題 ✓）。
+ *  「換上去的那一筆」＝結果裡引用著**客人打的那個新部件**的那一筆 ✓。
+ *  回傳警告字串或 "" ✓ */
+function inkWarningOf(st, r) {
+  if (!r || !r.ok || !r.substituted) return "";
+  if (!st || !st.chars || st.chars.length !== 3) return "";
+  var newCp = st.chars[2].codePointAt(0);
+  if (!newCp) return "";
+  try {
+    var si = partStrokeOf(r.lib, r.targetIdx, newCp);
+    if (si < 0) return "";
+    var c = inkConflictOf(r.lib, r.targetIdx, si);
+    return isInkBlob(c) ? inkConflictNote(c) : "";
+  } catch (e) { return ""; }
+}
+
+function renderSeq(st) {
+  var el = $("seqChips"), cap = $("seqNote");
+  var seq = $("seq").value.replace(/\s+/g, "");
+  var chars = Array.from(seq);
+  if (!chars.length) { el.innerHTML = ""; cap.textContent = ""; $("philNote").textContent = ""; return; }
+  var ch = seqOwnerChar(st, seq);
+  var gi = glyphIndexOf(ch);
+  var chips = gi === undefined ? [] : componentChips(gi);
+  /* 獨體字、或沒有部件可列：**整段不顯示**（使用者的要求），不是留一句說明。 */
+  if (gi === undefined || !chips.length) {
+    el.innerHTML = "";
+    cap.textContent = "";
+    $("philNote").textContent = "";
+    return;
+  }
+  var at = chars.indexOf(ch);
+  var sel = ACTIVE_BOX >= 0 && MAIN ? boxCoordText(ACTIVE_BOX) : "";
+  /* 只寫「部件清單」就好（使用者的要求）——是哪個字的清單看輸入區就知道；
+     選了框才多帶座標。 */
+  cap.textContent = "部件清單" + (sel ? "　·　" + sel : "");
+  /* 第 101 輪：**理據拆分**（說文，v6 的 `LIB.phil`）——**只顯示、不參與組字** ✓。
+     例 `雖`：理據＝虫＋唯 ✓（視覺＝虽＋隹，那是拿來組字的）✓ → 讓檢字軟件對文字學家也有用 ✓。
+     刻意放在**另一個元素**（`philNote`）✗ 不動 `seqNote`：後者是既有驗收的快照欄位 ✓。 */
+  (function () {
+    var note = $("philNote");
+    try {
+      var cp = ch ? ch.codePointAt(0) : undefined;
+      var pl = cp !== undefined && LIB && LIB.phil && LIB.phil.get ? LIB.phil.get(cp) : null;
+      note.textContent = pl && pl.length >= 2
+        ? "理據（說文）：" + pl.map(function (x) { return String.fromCodePoint(x); }).join("＋")
+        : "";
+    } catch (e) { note.textContent = ""; }
+  })();
+  /* 每一格：KAGE 字形 ＋ 小字標籤（有槽位的不標、IDS 的標 IDS、換不掉的標「—」）；
+     點一下＝用它替換（見 `replaceWith`）。**不可點的兩種**：
+     沒有碼位也沒有 IDS 的部件（沒有字元可以打進輸入區）、以及 `stuck`
+     （有字元、但引擎換不到，見 `componentChips()`）。 */
+  var h = [];
+  for (var k = 0; k < chips.length; k++) {
+    var c = chips[k];
+    var hasBox = c.box >= 0;
+    var named = !!c.ch;
+    /* 有字元而且換得動的才可點（`stuck`＝IDS 補的部件但引擎換不到，
+       見 `componentChips()`；沒有碼位的部件本來就沒有字元可以打進輸入區）。 */
+    var clickable = named && !c.stuck;
+    var glyph = c.ref >= 0 ? glyphSvg(c.ref)
+      : (glyphIndexOf(c.ch) === undefined ? c.ch : glyphSvg(glyphIndexOf(c.ch)));
+    var tip = (hasBox ? "第 " + (c.box + 1) + " 個部件（有槽位）" : "IDS 補的部件（沒有槽位）") +
+      (clickable ? "：" + c.ch + "　點一下＝用它替換"
+                 : named ? "：" + c.ch + "　引擎換不到這個部件（沒有可用的槽位）——只看得到"
+                         : "：這個部件在字庫裡沒有碼位，換不掉（只看得到）");
+    h.push('<div class="mini comp' + (hasBox ? "" : " idsonly") +
+      (named ? "" : " unnamed") + (c.stuck ? " stuck" : "") +
+      (hasBox && c.box === ACTIVE_BOX ? " on" : "") + '"' +
+      (named ? ' data-ch="' + c.ch + '" data-parent="' + (c.parent || c.ch) + '"' : "") +
+      (c.stuck ? ' data-stuck="1"' : "") +
+      (hasBox ? ' data-box="' + c.box + '"' : "") +
+      ' style="--bc:' + colorOfGlyph(c.ref) + ";" +
+      (hasBox ? "--c:" + boxColor(c.box) : "--c:var(--mut)") + '"' +
+      ' title="' + tip + '">' +
+      '<span class="g">' + glyph + "</span>" +
+      (hasBox ? "" : '<span class="ids">' + (clickable ? "IDS" : "—") + "</span>") + "</div>");
+  }
+  el.innerHTML = h.join("");
+}
+
+/** 選定部件的座標文字（框的上方要顯示座標——使用者的要求）。
+    用**原始 KAGE 框**（引擎實際用的那個矩形），`[x1,y1,x2,y2]`。 */
+function boxCoordText(order) {
+  if (!MAIN || !MAIN.boxes) return "";
+  for (var k = 0; k < MAIN.boxes.length; k++) {
+    var b = MAIN.boxes[k];
+    if (b.order !== order) continue;
+    var r = b.raw || b.tight;
+    if (!r) return "第 " + (order + 1) + " 個部件：IDS（沒有框）";
+    var q = [r[0], r[1], r[2], r[3]].map(function (v) { return Math.round(v); });
+    return "第 " + (order + 1) + " 個部件（" + compCharOf(b.ref) + "）[" + q.join(",") + "]" +
+      (b.idsOnly ? "　IDS" : "");
+  }
+  return "";
+}
+
+/* ============================ 庫存拼形 ============================ */
+/* **原文貼上，不要手打**——庫存裡有罕用字（𩀨），打錯看不出來。
+   來源：pinxing.md 的〈介面〉第 3 條。
+   `報土业` 一度因為組不出來被移出（引擎換不到孫級部件），2026-10-13 引擎加了
+   IDS 槽位推斷之後**放回來**；`街圭舞` 是使用者要求放進來檢查「舞 太大」的那一組
+   （放進來時已改成墨跡對齊，大小與 `衚胡舞` 一致）。 */
+var STOCK = [
+  "邏羅寶貝𩀨從䞃致招",
+  "初衤礻",
+  "颰犮电",
+  "峰夆電雨水",
+  "髜昇厏乍电",
+  "衚胡舞",
+  "街圭舞",
+  "寶缶支",
+  "報土业"
+];
+
+/* ★ 師父第 122 輪：把兩個 **IDS**（常見的合文 ✓）放在庫存區，讓客人一點就看到 ✓。
+   ⚠ IDS 不是構形序 ✗——IDS 說「要什麼」（`⿰木⿳金⿰水火土`），
+     構形序說「**怎麼拼**」（`機幾墨黒𨩛星炚日水`）✓。兩者不能互換 ✓。
+     這裡的構形序是師父手工擬的 ✓（實測 IoU：elements 0.359 ✓、xue 0.301 ✓，
+     比自動搜尋的 0.366／0.277 更穩 ✓——xue 那題看圖也是手工的乾淨 ✓）。 */
+/** IDS 用人話寫出來 ✓——**很多系統字型沒有 U+2FF0–2FFF** ✗（實測 headless Edge 全變方框 ▯ ✓），
+ *  所以訊息裡不能只印原始 IDS ✓，要附一句「左右（木｜上中下（金｜左右（水火）｜土））」✓。 */
+var IDS_OPNAME = { "⿰": "左右", "⿱": "上下", "⿲": "左中右", "⿳": "上中下",
+  "⿴": "全包", "⿵": "上包", "⿶": "下包", "⿷": "左包",
+  "⿸": "左上包", "⿹": "右上包", "⿺": "左下包", "⿻": "重疊" };
+var IDS_ARITY = { "⿰": 2, "⿱": 2, "⿲": 3, "⿳": 3, "⿴": 2, "⿵": 2, "⿶": 2, "⿷": 2, "⿸": 2, "⿹": 2, "⿺": 2, "⿻": 2 };
+function idsToText(s) {
+  var cs = Array.from(String(s)), i = 0;
+  function walk() {
+    if (i >= cs.length) return "";
+    var c = cs[i];
+    if (IDS_OPNAME[c]) {
+      i++;
+      var k = IDS_ARITY[c], parts = [];
+      for (var j = 0; j < k; j++) parts.push(walk());
+      return IDS_OPNAME[c] + "(" + parts.join("｜") + ")";
+    }
+    i++;
+    return c;
+  }
+  var out = "";
+  while (i < cs.length) out += walk();
+  return out;
+}
+/** 把 IDS 的**葉**取成有序的碼位陣列 ✓（解析不了回 null ✓） */
+function idsLeafList(s) {
+  var cs = Array.from(String(s)), out = [];
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i];
+    if (IDS_ARITY[c]) continue;
+    if (c === "&" || c === "{" || c === "[" || c === "#" || c === "(" || c === ")" || c === "}") return null;
+    out.push(c.codePointAt(0));
+  }
+  return out;
+}
+/** 把 IDS 的**葉**拉平（例 `⿰女子` → `女,子` ✓）——解析不了就回 "" ✓。
+ *  用途：拿它去**反查字庫**（`LIB.comp` 就是每個字的葉序 ✓）→ 客人貼 IDS 就能立刻看到那個字 ✓。 */
+function idsLeafKey(s) {
+  var cs = Array.from(String(s)), out = [];
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i];
+    if (IDS_ARITY[c]) continue;                 /* 算子跳過 ✓ */
+    if (c === "&" || c === "{" || c === "[" || c === "#" || c === "(" || c === ")" || c === "}") return "";
+    out.push(c.codePointAt(0));
+  }
+  return out.join(",");
+}
+/** 葉序 → 有哪些字（**懶建** ✓：第一次要查才掃 `LIB.comp`，約 0.5 秒 ✓） */
+var LEAF_INDEX = null;
+function leafIndexOf(key) {
+  if (!LEAF_INDEX) {
+    LEAF_INDEX = {};
+    if (LIB.comp) {
+      LIB.comp.forEach(function (comps, cp) {
+        if (!comps || !comps.length || comps.length > 8) return;
+        var k = comps.join(",");
+        var list = LEAF_INDEX[k];
+        if (list) list.push(cp); else LEAF_INDEX[k] = [cp];
+      });
+    }
+  }
+  return LEAF_INDEX[key] || null;
+}
+
+/* ==================== IDS ↔ 字形（師父第 124 輪） ====================
+ * ① **把 IDS 按 IDC 等比分配組出來**（故意醜 ✓）——客人才看得出「構形序」好在哪裡 ✓。
+ *    做法：把每個葉依算子切成等分方格（⿰ 左右各半、⿳ 上中下各三分之一… ✓），
+ *    造一個**合成字形**（每個葉一個引用 ＋ 等分框 ＋ 不伸縮 ✓）再交給引擎畫 ✓。
+ *    這正是師父說的「按 IDC 的等比分配」✓——**沒有墨跡對齊、沒有讓位** ✓，所以醜 ✓。
+ * ② **把字拆成 IDS**（依**畫法**推 ✓，零新增資料 ✓）——客人不會打 IDC，所以要有按鈕 ✓。
+ */
+var IDS_DIV = { "⿰": [2, 0], "⿱": [2, 1], "⿲": [3, 0], "⿳": [3, 1] };
+
+/** 產生「等比分配」的合成字形 ✓；回傳 {lib, idx} 或 null ✓ */
+function idsComposeNaive(ids) {
+  var cs = Array.from(String(ids)), i = 0, plan = [];
+  function walk(x0, y0, w, h) {
+    if (i >= cs.length) return false;
+    var c = cs[i];
+    if (IDS_ARITY[c]) {
+      i++;
+      var k = IDS_ARITY[c];
+      for (var j = 0; j < k; j++) {
+        var bx = x0, by = y0, bw = w, bh = h;
+        if (c === "⿰") { bx = x0 + w * j / 2; bw = w / 2; }
+        else if (c === "⿱") { by = y0 + h * j / 2; bh = h / 2; }
+        else if (c === "⿲") { bx = x0 + w * j / 3; bw = w / 3; }
+        else if (c === "⿳") { by = y0 + h * j / 3; bh = h / 3; }
+        else { bx = x0 + w * 0.08; by = y0 + h * 0.08; bw = w * 0.84; bh = h * 0.84; }  /* 包圍類：內縮一點 ✓ */
+        if (!walk(bx, by, bw, bh)) return false;
+      }
+      return true;
+    }
+    i++;
+    /* ★ 師父第 126 輪選了選項 ③：**不縮放、只擺位** ✓——
+       部件按**自己的大小**擺在各半格的**中心** ✓：大的溢出 ✗、小的留白 ✗、兩塊中間重疊 ✓，
+       一看就知道「系統沒有布局資訊」✓（這才是 IDS 該有的樣子 ✓）。 */
+    var ccx = x0 + w / 2, ccy = y0 + h / 2;
+    plan.push({ ch: c, box: [Math.round(ccx - 100), Math.round(ccy - 100), Math.round(ccx + 100), Math.round(ccy + 100)] });
+    return true;
+  }
+  if (!walk(0, 0, 200, 200) || i !== cs.length || !plan.length) return null;
+  /* 找一個現成的 99 引用當**樣板** ✓（照抄它的欄位，只換框與參照 ✓） */
+  var proto = null;
+  for (var q = 0; q < LIB.glyphs.length && !proto; q++) {
+    var gs = LIB.glyphs[q].strokes;
+    for (var r = 0; r < gs.length; r++) if (gs[r].kind === 99 && gs[r].ref !== null) { proto = gs[r]; break; }
+  }
+  if (!proto) return null;
+  var strokes = [];
+  for (var p = 0; p < plan.length; p++) {
+    var gi = glyphIndexOf(plan[p].ch);
+    if (gi === undefined) return null;
+    var ref = drawingIdx(LIB, gi);
+    var s = {};
+    for (var kk in proto) s[kk] = proto[kk];
+    s.box = plan[p].box;
+    s.stretch = [0, 0, 0, 0];          /* 0 ＝ 不額外伸縮 ✓（等比分配就是這樣醜 ✓） */
+    s.ref = ref;
+    strokes.push(s);
+  }
+  var L2 = {};
+  for (var kk2 in LIB) L2[kk2] = LIB[kk2];
+  L2.glyphs = LIB.glyphs.slice();
+  if (LIB.names) L2.names = LIB.names.slice();
+  var idx = L2.glyphs.length;
+  L2.glyphs.push({ strokes: strokes });
+  if (L2.names) L2.names.push("__ids_naive");
+  return { lib: L2, idx: idx, n: plan.length };
+}
+
+/* ==================== 任意 IDS → 建議構形序（師父第 125 輪） ====================
+ * 師父的例子：客人打「⿰木垚」→ 系統按 IDC 各半畫得醜醜的 ✓ →
+ * 然後建議「**桂圭垚**」（`桂`＝木＋圭 ✓，把 `圭` 換成 `垚` ✓）→ 點一下字就漂亮了 ✓。
+ *
+ * 演算法（**零新增資料** ✓，用字庫的 `comp`＝**直接分量** ✓）：
+ *   ① 目標的葉序（例 木,垚 ✓）
+ *   ② 掃字庫：分量數相同、**只差一個位置**的字 ✓（＝換一次就好 ✓）
+ *   ③ **排序用「遞迴葉子重疊」** ✓✓——這是實測出來的關鍵判準 ✓：
+ *      `垚` 遞迴展開是 土,土,土 ✓；`圭` 是 土,土 ✓ → 重疊 2/3 ✓ **第 2 名** ✓；
+ *      而「木＋千」「木＋山」這些 ✗ 一個土都沒有 ✓ → 0 ✓。
+ *      （我試錯過兩個判準：**墨框面積比** → 桂 738 名 ✗；**形狀 IoU** → 1772 名 ✗
+ *        ——因為正規化會把長寬比壓掉 ✗，而 `圭`(2土) 與 `垚`(3土) 的差別正在比例 ✓。）
+ *   ④ 再用引擎真組一次 ✓、剔掉「墨疊一塊」的 ✓。
+ */
+function leafMultiset(cp, depth) {
+  var out = new Map();
+  var comps = LIB.comp ? LIB.comp.get(cp) : null;
+  if (!comps || !comps.length || depth > 4) { out.set(cp, 1); return out; }
+  for (var i = 0; i < comps.length; i++) {
+    leafMultiset(comps[i], depth + 1).forEach(function (v, k) { out.set(k, (out.get(k) || 0) + v); });
+  }
+  return out;
+}
+/** 為一個 IDS 找建議的構形序 ✓（回傳 [{seq, share, extra, bmp}] ✓，最多 limit 個 ✓） */
+function seqCandidatesForIds(ids, limit) {
+  var leaves = idsLeafList(ids);
+  if (!leaves || leaves.length < 2 || leaves.length > 6 || !LIB.comp) return [];
+  var out = [];
+  LIB.comp.forEach(function (comps, cp) {
+    if (comps.length !== leaves.length) return;
+    var diff = -1, n = 0, i;
+    for (i = 0; i < comps.length; i++) {
+      if (comps[i] !== leaves[i]) { diff = i; n++; if (n > 1) return; }
+    }
+    if (n !== 1) return;
+    var oldCp = comps[diff], newCp = leaves[diff];
+    if (oldCp === newCp) return;
+    var gi = indexOfCodePoint(LIB, cp);
+    if (gi === undefined) return;
+    if (!canReplaceCp(LIB, gi, oldCp)) return;         /* 引擎真的換得動 ✓ */
+    var tl = leafMultiset(newCp, 0), ol = leafMultiset(oldCp, 0);
+    var inter = 0, tot = 0, extra = 0;
+    tl.forEach(function (v, k) { tot += v; inter += Math.min(v, ol.get(k) || 0); });
+    ol.forEach(function (v, k) { extra += Math.max(0, v - (tl.get(k) || 0)); });
+    if (!tot) return;
+    out.push({
+      seq: String.fromCodePoint(cp) + String.fromCodePoint(oldCp) + String.fromCodePoint(newCp),
+      fromCh: String.fromCodePoint(oldCp), toCh: String.fromCodePoint(newCp),
+      share: inter / tot, extra: extra,
+      bmp: (cp >= 0x4e00 && cp <= 0x9fff),
+      strokes: LIB.glyphs[drawingIdx(LIB, gi)].strokes.length,
+      oldCp: oldCp, newCp: newCp,
+    });
+  });
+  /* 先按「葉子重疊」粗篩 ✓（便宜 ✓），再對前 120 名算**長寬比**（貴一點但值得 ✓）。
+     ★ 為什麼要長寬比 ✓：師父挑 `桂`（`圭`＝2 土 ✓ 與 `垚`＝3 土 **同為土柱** ✓）
+       而不挑 `橈`（`堯`＝土土土＋兀 ✓ 葉子重疊 100% ✗ 但形狀是**寬的** ✗）。
+       單看重疊會挑到「寬的」✗；乘上 1/(1+|log 長寬比差|) 就對了 ✓（實測 `桂` 變第一 ✓）。 */
+  out.sort(function (a, b) {
+    return (b.share - a.share) || (a.extra - b.extra) || ((b.bmp ? 1 : 0) - (a.bmp ? 1 : 0)) ||
+      (a.strokes - b.strokes);
+  });
+  /* ⚠ 粗篩池不能太小 ✗：實測前 120 名會把 `桂` 篩掉 ✗（結構分數並列的一堆 ✓，
+     第 4 順位是筆劃數 ✓）→ 放大到 800 名（約 0.4 秒 ✓ 可接受 ✓）。 */
+  var pool = out.slice(0, 800);
+  for (var q = 0; q < pool.length; q++) {
+    var ao = inkAspect(pool[q].oldCp), an = inkAspect(pool[q].newCp);
+    pool[q].shape = (ao > 0 && an > 0) ? 1 / (1 + Math.abs(Math.log(ao / an))) : 0.5;
+    pool[q].score = pool[q].share * pool[q].shape;
+  }
+  pool.sort(function (a, b) {
+    return (b.score - a.score) || (b.share - a.share) || (a.extra - b.extra) ||
+      ((b.bmp ? 1 : 0) - (a.bmp ? 1 : 0)) || (a.strokes - b.strokes);
+  });
+  /* ★ 最後一關：**多餘的葉子要罰** ✓——
+     `橈` 的舊部件 `堯`（土土土＋**兀** ✗）葉子重疊 100% ✗ 但多帶一個兀 ✗；
+     `桂` 的舊部件 `圭`（土土 ✓）一個多餘的都沒有 ✓。
+     師父挑 `桂` 而不是 `橈` ✓，差別就在這裡 ✓（實測：罰 0.5×多餘葉數 → `桂` 第一 ✓）。 */
+  pool.sort(function (a, b) {
+    var sa = a.share - 0.5 * a.extra, sb2 = b.share - 0.5 * b.extra;
+    return (sb2 - sa) || ((b.bmp ? 1 : 0) - (a.bmp ? 1 : 0)) || (a.strokes - b.strokes);
+  });
+  return pool.slice(0, limit || 4);
+}
+/* ==================== 任意 IDS → **多步階梯**（師父第 127 輪：「當場算」✓） ====================
+ * 師父的階梯（`機幾墨黒𨩛星炚日水` ✓）逐步解碼是：
+ *   `機`(木＋幾) → 幾換 `墨`(黒＋土 ✓ 土到位) → 黒換 `𨩛`(金＋星 ✓ 金到位)
+ *   → 星換 `炚`(日＋火 ✓ 火到位) → 日換 `水`(✓ 水到位)。
+ * **每一步都「多放進一個目標部件 ＋ 最多帶一個暫用部件」** ✓——這就是貪婪的依據 ✓。
+ * 這裡只用字庫的 `comp`（**直接分量** ✓）＋ 貼進來的 IDS 的葉序 ✓，**零新增資料** ✓。
+ * 成本：每步掃一次 97,079 個字（約 50–100 ms ✓）→ 四五步不到 1 秒 ✓（可以在頁面當場算 ✓）。
+ */
+function ladderForIds(ids, maxSteps) {
+  var target = idsLeafList(ids);
+  if (!target || target.length < 2 || target.length > 6 || !LIB.comp) return null;
+  var want = new Map();
+  for (var w = 0; w < target.length; w++) want.set(target[w], (want.get(target[w]) || 0) + 1);
+  var isBmp = function (cp) { return cp >= 0x4e00 && cp <= 0x9fff; };
+  /** 起點：含最多目標葉、分量數少（結構簡單好換 ✓）、BMP 優先 ✓ */
+  var base = null, baseScore = -1e9;
+  LIB.comp.forEach(function (comps, cp) {
+    var hit = 0;
+    for (var i = 0; i < comps.length; i++) if (want.has(comps[i])) hit++;
+    if (!hit) return;
+    var sc = hit * 100 - comps.length * 2 + (isBmp(cp) ? 5 : 0);
+    if (sc > baseScore) { baseScore = sc; base = { cp: cp, comps: comps.slice() }; }
+  });
+  if (!base) return null;
+  /** 目前的樹＝葉的陣列（與引擎「換第一個出現的部件」一致 ✓） */
+  var state = base.comps.slice();
+  var steps = [];
+  for (var s = 0; s < (maxSteps || 5); s++) {
+    var have = new Map();
+    for (var i2 = 0; i2 < state.length; i2++) have.set(state[i2], (have.get(state[i2]) || 0) + 1);
+    var missing = 0;
+    want.forEach(function (v, k) { missing += Math.max(0, v - (have.get(k) || 0)); });
+    if (!missing) break;
+    /* 找最好的下一步 ✓——**引擎在迴路裡** ✓（師父第 127～128 輪的教訓：
+       光是「葉子覆蓋」算出來的分數會挑到引擎做不到的步 ✗：
+       實測貪婪產生 `𧆘艹爕火圭土沝水鍂`（引擎組不出來 ✗）與 `奻女𱲍孔嚳告吼`（IoU 0.203 ✗、還走串接 ✗）。
+       → 所以每一輪都：**先便宜地排序候選 ✓ → 取前 12 名真的組一次 ✓ → 只採用引擎做得到、
+         而且最好能「沿用原框」的步 ✓**（沿用原框＝那個槽位本來就裝得下 ✓，師父的階梯 2/3、2/4 ✓）。
+       成本：每步 12 次組字（約 1～3 ms／次 ✓）→ 一步不到 50 ms ✓。 */
+    var order = [];
+    LIB.comp.forEach(function (comps, cp) {
+      if (comps.length > 4) return;
+      var gain = 0, extra = 0, i3;
+      for (i3 = 0; i3 < comps.length; i3++) {
+        var cc = comps[i3];
+        var need = (want.get(cc) || 0) - (have.get(cc) || 0);
+        if (need > 0) gain += 1; else extra += 1;
+      }
+      if (!gain || extra > 1) return;
+      for (var li = 0; li < state.length; li++) {
+        var L = state[li];
+        var spare = !want.has(L) || (have.get(L) || 0) > (want.get(L) || 0);
+        var sc = gain * 100 - extra * 30 + (spare ? 15 : 0) + (isBmp(cp) ? 6 : 0) - comps.length -
+          Math.abs(state.length - 1 + comps.length - target.length) * 4;
+        order.push({ leafIx: li, comps: comps.slice(), cp: cp, sc: sc, gain: gain, extra: extra });
+      }
+    });
+    if (!order.length) break;
+    order.sort(function (a, b) { return b.sc - a.sc; });
+    var best = null;
+    var trialN = Math.min(order.length, 12);
+    for (var t = 0; t < trialN; t++) {
+      var cand = order[t];
+      var trial = state.slice();
+      trial.splice(cand.leafIx, 1, ...cand.comps);
+      /* 真的組一次 ✓（前面已累積的步 ＋ 這一步 ✓） */
+      var trialSeq = String.fromCodePoint(base.cp);
+      for (var p2 = 0; p2 < steps.length; p2++) {
+        trialSeq += String.fromCodePoint(steps[p2].old) + String.fromCodePoint(steps[p2].ch);
+      }
+      trialSeq += String.fromCodePoint(state[cand.leafIx]) + String.fromCodePoint(cand.cp);
+      var kept = 0, okTrial = false;
+      try {
+        var rT = evalSeq(LIB, trialSeq, {});
+        if (rT && rT.ok) {
+          var lg = (rT.log || []).join(" ");
+          if (lg.indexOf("串接") < 0) {
+            okTrial = true;
+            kept = (rT.log || []).filter(function (s) { return String(s).indexOf("沿用原框") >= 0; }).length;
+          }
+        }
+      } catch (eT) { okTrial = false; }
+      if (!okTrial) continue;
+      var sc2 = cand.sc + kept * 25;             /* **沿用原框**加分 ✓（引擎說「框不必重算」✓） */
+      if (!best || sc2 > best.sc2) best = { cand: cand, sc2: sc2, kept: kept };
+    }
+    if (!best) break;                            /* 引擎做不到就停 ✓（不硬湊 ✗） */
+    var chosen = best.cand;
+    var step = { ix: chosen.leafIx, old: state[chosen.leafIx], ch: chosen.cp };
+    steps.push(step);
+    state.splice(chosen.leafIx, 1, ...chosen.comps);
+  }
+  if (!steps.length) return null;
+  var covered = 0;
+  var fin = new Map();
+  for (var f = 0; f < state.length; f++) fin.set(state[f], (fin.get(state[f]) || 0) + 1);
+  want.forEach(function (v, k) { covered += Math.min(v, fin.get(k) || 0); });
+  var seq = String.fromCodePoint(base.cp);
+  for (var p = 0; p < steps.length; p++) {
+    seq += String.fromCodePoint(steps[p].old) + String.fromCodePoint(steps[p].ch);
+  }
+  /* ★★ **先問引擎，再談分數** ✓（我在第 121 輪就學過這條 ✗，這一輪又忘了一次 ✗）：
+     實測未驗證的貪婪會產出「引擎根本組不出來」（`𧆘…` 換到孫級部件 ✗）
+     或「橫向 3 等分串接」那種廢話 ✗（IoU 0.203 ✗，手工是 0.301 ✓）。
+     → 所以**真的組一次** ✓：組不出來、或引擎走了「串接」這條退路 ✗，就**不採用** ✓（回 null ✓）。 */
+  try {
+    var chk = evalSeq(LIB, seq, {});
+    if (!chk || !chk.ok) return null;
+    var log = (chk.log || []).join(" ");
+    if (log.indexOf("串接") >= 0) return null;
+  } catch (eChk) { return null; }
+  return { seq: seq, steps: steps.map(function (x) { return [x.old, x.ch]; }), base: base.cp,
+           cover: covered / target.length, nSteps: steps.length };
+}
+
+/** 部件自己的**墨跡長寬比** ✓（用來判斷「換上去會不會走形」✓） */function inkAspect(cp) {
+  try {
+    var gi = indexOfCodePoint(LIB, cp);
+    if (gi === undefined) return 0;
+    var di = drawingIdx(LIB, gi);
+    var b = inkIn(LIB, di);
+    var w = b.x2 - b.x1, h = b.y2 - b.y1;
+    return (w > 0 && h > 0) ? w / h : 0;
+  } catch (e) { return 0; }
+}
+
+/** 把字拆成 IDS ✓——**依畫法**推算子（零新增資料 ✓）： *  看這個字的直接引用（槽位 ✓）的相對位置 → 左右＝⿰、上下＝⿱、三等分＝⿲／⿳ ✓。
+ *  ⚠ 這是**視覺拆分** ✓；「新 IDS 來源的主要拆法」要 +387 KB 的表（實測 ✓），留待師父裁定 ✓。 */
+function idsOfChar(ch) {
+  var gi = glyphIndexOf(ch);
+  if (gi === undefined) return "";
+  var di = drawingIdx(LIB, gi);
+  var slots = refSlotsOf(LIB, di);
+  if (slots.length < 2) return "";
+  /* 每個槽位的**墨跡框中心** ✓（引用框常是滿格恆等框 ✗，比不出佈局 ✓） */
+  var pts = [];
+  for (var i = 0; i < slots.length; i++) {
+    var b = slots[i].box, cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+    try {
+      var ink = inkOfRefInParent(LIB, di, slots[i].strokeIx);
+      if (ink && ink.x2 > ink.x1) { cx = (ink.x1 + ink.x2) / 2; cy = (ink.y1 + ink.y2) / 2; }
+    } catch (e) { /* 用引用框 ✓ */ }
+    var cp = codePointOf(LIB, slots[i].ref);
+    if (!cp) return "";
+    pts.push({ cp: cp, cx: cx / 200, cy: cy / 200 });
+  }
+  function spread(vals) { return Math.max.apply(null, vals) - Math.min.apply(null, vals); }
+  var sx = spread(pts.map(function (p) { return p.cx; }));
+  var sy = spread(pts.map(function (p) { return p.cy; }));
+  var order = pts.slice().sort(function (a, b) {
+    return (sx > sy ? a.cx - b.cx : a.cy - b.cy) || (sx > sy ? a.cy - b.cy : a.cx - b.cx);
+  });
+  var op = sx > sy ? (order.length === 2 ? "⿰" : order.length === 3 ? "⿲" : "") :
+                      (order.length === 2 ? "⿱" : order.length === 3 ? "⿳" : "");
+  if (!op) {
+    /* 4 個以上：退化成「左右」＋巢狀（畫法裡最常見的情形 ✓），誠實但不完美 ✓ */
+    return "";
+  }
+  return op + order.map(function (p) { return String.fromCodePoint(p.cp); }).join("");
+}
+
+var IDS_STOCK = [
+  { ids: "⿰木⿳金⿰水火土", seq: "機幾墨黒𨩛星炚日水", what: "五行（木＋金水火土）", img: "__IMG_ELEMENTS_B64__" },
+  { ids: "⿳𦥯⿰女孔皿", seq: "𦧀熏䀉喬𰠬牜女", what: "好學孔孟（𦥯＋女孔＋皿）", img: "__IMG_XUE_B64__" }
+];
+/** 輸入區送的 IDS 有沒有現成的構形序 ✓（比對時去掉空白 ✓） */
+function idsRecommend(ids) {
+  var key = String(ids).replace(/\s+/g, "");
+  for (var i = 0; i < IDS_STOCK.length; i++) if (IDS_STOCK[i].ids === key) return IDS_STOCK[i];
+  return null;
+}
+/** 輸入區裡有沒有 **IDS 算子**（U+2FF0–U+2FFF ✓）——有的話就當構字式處理 ✓ */
+function idsOperators(s) {
+  var out = "";
+  var cs = Array.from(String(s));
+  for (var i = 0; i < cs.length; i++) {
+    var cp = cs[i].codePointAt(0);
+    if (cp >= 0x2ff0 && cp <= 0x2fff) out += cs[i];
+  }
+  return out;
+}
+
+var LS_STOCK = "pinxing.stock", LS_BOX = "pinxing.boxmode";
+
+function loadUserStock() {
+  try { return JSON.parse(localStorage.getItem(LS_STOCK) || "[]"); } catch (e) { return []; }
+}
+function saveUserStock(a) {
+  try { localStorage.setItem(LS_STOCK, JSON.stringify(a)); } catch (e) { /* 無痕模式 */ }
+}
+
+/** 「存起來」：把輸入區的序列存進 localStorage。**已經存過就移到最前面**，
+    不是再存一份。按鈕（svg 圖示）與 Enter 都走這一支。 */
+function saveCurrentSeq() {
+  var s = $("seq").value.replace(/\s+/g, "");
+  if (!s) return;
+  var mine = loadUserStock();
+  var at = mine.indexOf(s);
+  var moved = at > 0;
+  if (at >= 0) mine.splice(at, 1);
+  mine.unshift(s);
+  saveUserStock(mine.slice(0, 40));
+  $("stock").innerHTML = stockHtml();
+  toast(moved ? "已移到最前面：" + s : "已存起來：" + s);
+}
+
+/** 輸入區下方的浮層提示（absolute，不佔高度 → 出現／消失都不會晃動畫面）。
+    `kind` 是 `ok`（存起來之類）或 `warn`（不是合法拼形式之類）。 */
+var toastTimer = null, flashTimer = null;
+function toast(text, kind) {
+  var el = $("msg");
+  if (!el) return;
+  if (!text) {
+    el.textContent = "";
+    el.className = "toast";
+    return;
+  }
+  el.textContent = text;
+  el.className = "toast on " + (kind === "warn" ? "warn" : "ok");
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.className = "toast"; }, 3000);
+}
+
+/** 模式切換的一瞬提醒：只改 `#seq` 的顏色（box-shadow 閃一下），不移動任何東西。
+    「合理拼形 ↔ 部件檢字」這種切換只有標籤變色，很容易沒注意到。 */
+function flashSeq(kind) {
+  if (!kind) return;
+  var el = $("seq");
+  if (!el) return;
+  el.classList.remove("flash-ok", "flash-warn");
+  void el.offsetWidth;                 /* 強制 reflow，動畫才會重播 */
+  el.classList.add(kind === "warn" ? "flash-warn" : "flash-ok");
+  if (flashTimer) clearTimeout(flashTimer);
+  flashTimer = setTimeout(function () { el.classList.remove("flash-ok", "flash-warn"); }, 750);
+}
+
+/** 字框三態（墨跡緊框／原始 KAGE 框／不顯示）的按鈕標籤。 */
+function applyBoxMode() {
+  var b = $("boxMode");
+  if (!b) return;
+  b.setAttribute("data-mode", BOXMODE);
+  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "raw" ? "字框：原" : "字框：無";
+  b.title = BOXMODE === "tight" ? "顯示墨跡緊框（預設）"
+    : BOXMODE === "raw" ? "顯示原始 KAGE 引用框" : "不顯示字框";
+}
+
+function stockHtml() {
+  var out = [];
+  for (var k = 0; k < STOCK.length; k++) out.push(stockRow(STOCK[k], false, k));
+  /* ★ 兩個 IDS 合文接在**內建九組之後** ✓（師父第 122 輪 ✓：一點就看到 ✓）。
+     ⚠ 刻意放在這裡、不插最前面 ✗——插前面會把既有庫存的位置推歪 ✓
+       （驗收的「第 4 組＝初衤礻」那類斷言全靠位置 ✓，實測被推歪過一次 ✓）。 */
+  for (var q = 0; q < IDS_STOCK.length; q++) out.push(stockRowIds(IDS_STOCK[q]));
+  var mine = loadUserStock();
+  for (var j = 0; j < mine.length; j++) out.push(stockRow(mine[j], true, j));
+  if (!mine.length) out.push('<div class="row"><span class="note">還沒有存自己的序列——' +
+    '打好上面的序列後按右邊的存檔圖示（或直接按 Enter），會記在 localStorage。</span></div>');
+  return out.join("");
+}
+
+/** IDS 合文那一列 ✓：格子畫**師父給的原圖** ✓（base64 打包 ✓）、
+ *  點一下＝把 **IDS** 送進輸入區 ✓（先看醜字 ✓，再點建議才變美 ✓）。
+ *  ⚠ 標記用 `mbflag` 而**不是** `flag` ✗——`flag` 是「參」（組不出單一形 ✓）的標記，
+ *    混用會讓「有幾組是參」的斷言誤判 ✓（實測踩過 ✓）。 */
+function stockRowIds(ent) {
+  var img = ent.img ? '<img class="rawimg" alt="" src="data:image/png;base64,' + ent.img + '">'
+                    : '<span class="miss">?</span>';
+  var title = "合文 " + ent.what + "\n按下去＝把構字式送進輸入區：" + ent.ids +
+    "\n（先看 IDS 的等比分配 ✓ 再點系統的構形序建議 ✓）";
+  return '<div class="stockrow ids" data-send="' + ent.ids + '" data-ids="' + ent.ids +
+    '" title="' + title + '">' +
+    '<div class="stockcell"><span class="mbflag">合</span><div class="g">' + img + '</div></div></div>';
+}
+
+function stockRow(seq, mine, ix) {
+  var chars = Array.from(seq);
+  var r = stockCompose(seq);
+  /* 按鈕顯示**組出來的形**（規格第 3 條）；組不出來就退回第一個字並標「參」。
+     **不顯示拼形式本身**（使用者的要求）：想知道是什麼序列，點一下就知道。 */
+  var glyph;
+  if (r && r.ok) glyph = svgOfLib(r.lib, r.targetIdx);
+  else {
+    var fi = glyphIndexOf(chars[0]);
+    glyph = fi === undefined ? '<span class="miss">' + chars[0] + "</span>" : glyphSvg(fi);
+  }
+  var flag = !r || !r.ok ? '<span class="flag">參</span>' : "";
+  var title = seq + (r && r.ok ? "（點一下帶進輸入區）" : "（組不出單一形，按鈕畫的是第一個字）");
+  return '<div class="stockrow' + (mine ? " mine" : "") + '" data-seq="' + seq +
+    '" title="' + title + '">' +
+    '<div class="stockcell">' + flag + '<div class="g">' + glyph + "</div></div>" +
+    (mine ? '<button class="delStock" data-i="' + ix + '">刪</button>' : "") +
+    "</div>";
+}
+
+/** 庫存序列的組字結果（每個序列只算一次）。 */
+var stockResults = {};
+function stockCompose(seq) {
+  var hit = stockResults[seq];
+  if (hit !== undefined) return hit;
+  var r;
+  try { r = evalSeq(LIB, seq, {}); } catch (e) { r = { ok: false, error: String(e && e.message || e) }; }
+  stockResults[seq] = r;
+  return r;
+}
+
+/* ============================ 主畫面 ============================ */
+var BOXMODE = "tight";
+try {
+  var savedBox = localStorage.getItem(LS_BOX);
+  if (savedBox === "raw" || savedBox === "none" || savedBox === "tight") BOXMODE = savedBox;
+} catch (e) { }
+var ACTIVE_BOX = -1;
+
+/**
+ * 重畫的排程。
+ *
+ * **輸入事件不要直接呼叫 `render()`**：中文輸入法在組字期間每個注音按鍵都會觸發 `input`，
+ * 而 `insertChar()`／貼上也會自己改 `el.value`——直接同步重畫會在中間狀態先畫一次，
+ * 接著又被下一次覆蓋，看起來就是「改了卻沒有立刻更新」。
+ * 排到 microtask 之後，同一輪的所有變動只畫最後一次。
+ */
+var renderQueued = false;
+function scheduleRender() {
+  /* 驗收探針要能同步斷言（headless 的 --dump-dom 不等 microtask）：
+     設 window.__SYNC__ = true 就當場重畫。 */
+  if (window.__SYNC__) { render(); return; }
+  if (renderQueued) return;
+  renderQueued = true;
+  Promise.resolve().then(function () { renderQueued = false; render(); });
+}
+
+/** 輸入區 ＝ 拼形式（也是零件檢字條件）。整個畫面都從這一支重畫。
+ *  **傳進 `evalInput()` 的是原始輸入**：`木 /` 這種寫法的運算子要留給檢字語法，
+ *  字元本身在裡面另外濾掉空白再判讀。 */
+function render() {
+  var st = evalInput($("seq").value);
+  lastEval = st;
+
+  var note = $("bigNote");
+  /* 浮層提示：換字時先收起來（有新訊息再顯示） */
+  toast("", "");
+
+  /* 左邊的標籤：空白＝剎那拼形（醒目色）／合法拼形式＝合理拼形／其餘＝部件檢字。
+     單字刻意算「檢字」——使用者輸入「合」要的是含合的字清單，不是組字。 */
+  var lbl = $("seqlbl");
+  var empty = st.mode === "empty";
+  var composing = st.mode === "partial" || (st.mode === "ok" && !st.single);
+  lbl.textContent = empty ? "剎那拼形" : composing ? "合理拼形" : "部件檢字";
+  lbl.className = "seqlbl" + (empty ? " brand" : composing ? " good" : " find");
+  /* 標籤從「合理拼形」變成「部件檢字」（或反向）時，讓輸入區閃一下顏色（不移動版面） */
+  var mode3 = empty ? "empty" : composing ? "good" : "find";
+  if (mode3 !== lastLabelMode) {
+    if (lastLabelMode !== null && mode3 !== "empty") flashSeq(mode3 === "find" ? "warn" : "ok");
+    lastLabelMode = mode3;
+  }
+  /* 不是合法拼形式就不給存檔（使用者的要求） */
+  $("saveSeq").hidden = !composing;
+
+  if (empty) {
+    setMain(null);
+    $("big").innerHTML = '<div class="ph">在上面輸入任何字或拼形式</div>';
+    note.textContent = "";
+    $("seqNote").textContent = "";
+    $("seqChips").innerHTML = "";
+    SEARCH = null; renderSearch();
+    uploadLinks(null);
+    renderSuggest(st, null);
+    return;
+  }
+
+  if (st.mode === "ids") {
+    /* ★ 師父第 124 輪：**輸入 IDS 的組字要故意醜** ✓（就按 IDC 的等比分配 ✓）——
+       這樣客人才看得出 IDS 與構形序的差別 ✓。
+       版面：**大字＝IDS 等比分配的醜形** ✓；**並排那格＝構形序的美形** ✓（點一下就換過去 ✓）。 */
+    lbl.textContent = "構字式（IDS）";
+    lbl.className = "seqlbl find";
+    $("saveSeq").hidden = true;
+    var rec = st.recommend;
+    var naive = null;
+    try { naive = idsComposeNaive(st.ids); } catch (e0) { naive = null; }
+    if (naive) {
+      setMain(naive.lib, naive.idx);
+      $("big").innerHTML = mainSvg();
+      try { renderBig(false); } catch (e1) { /* 框層失敗不影響大字 ✓ */ }
+    }
+    /* ★ 師父第 126 輪：**不要先畫出優化後的樣子** ✗——
+       一來佔畫面 ✓，二來「**接受建議、字形突然變美**」才是客人驚嘆的那一刻 ✓✓。
+       所以這裡只給**文字推薦**（可點 ✓），美形留到他點下去才出現 ✓。 */
+    var recSeqs = [];
+    var one = [], live = null;
+    try { one = seqCandidatesForIds(st.ids, 4); } catch (eL) { one = []; }
+    /* ★ 師父第 127 輪「**當場算**」✓：先試多步階梯 ✓（`機幾墨黒𨩛星炚日水` 那種 ✓）。
+       規則：**一步就能換好的**（結構分數 ≥ 0.6 ✓，例 `⫰木垚` → `桂圭垚` ✓）優先；
+       一步換不好（例五個葉的合文 ✗）就用**多步階梯** ✓。 */
+    if (!(one.length && one[0].share >= 0.6)) {
+      try { live = ladderForIds(st.ids, 5); } catch (eL2) { live = null; }
+    }
+    if (one.length && one[0].share >= 0.6) {
+      for (var q4 = 0; q4 < one.length; q4++) recSeqs.push(one[q4].seq);
+    } else if (live && live.cover >= 0.999) {
+      recSeqs.push(live.seq);
+      for (var q5 = 0; q5 < one.length; q5++) recSeqs.push(one[q5].seq);
+    } else {
+      for (var q6 = 0; q6 < one.length; q6++) recSeqs.push(one[q6].seq);
+    }
+    if (rec && recSeqs.indexOf(rec.seq) < 0) recSeqs.push(rec.seq);   /* 手工調的示範序當後備 ✓ */
+    var recIsLive = !!(live && live.cover >= 0.999 && recSeqs[0] === live.seq);
+    /* 若這個構字式**就是某個真字** ✓（葉序反查 ✓）→ 把它排最前面 ✓ */
+    if (st.hits && st.hits.length && !recIsLive) {
+      var pick = st.hits.slice().sort(function (a, b) {
+        var ba = (a >= 0x4e00 && a <= 0x9fff) ? 0 : 1, bb = (b >= 0x4e00 && b <= 0x9fff) ? 0 : 1;
+        return ba - bb || a - b;
+      })[0];
+      var ci = recSeqs.indexOf(String.fromCodePoint(pick));
+      if (ci >= 0) recSeqs.splice(ci, 1);
+      recSeqs.unshift(String.fromCodePoint(pick));
+    }
+    if (recSeqs.length) {
+      var stage2 = $("sugStage"), cap2 = $("sugCap"), wrap2 = $("sugWrap");
+      if (stage2) { stage2.innerHTML = ""; stage2.hidden = true; stage2.removeAttribute("data-sug"); }
+      if (cap2) {
+        cap2.textContent = "試試「" + recSeqs[0] + "」✓（" +
+          (recIsLive ? "系統**當場算**出來的構形序 ✓ " + live.nSteps + " 步 ✓" :
+            recSeqs[0] === (rec && rec.seq) ? "手工調的示範序 ✓" : "系統推薦 ✓") +
+          "點一下，字就變漂亮了 ✓）";
+      }
+      if (wrap2) wrap2.hidden = false;
+      var row3 = $("sugRow"), sb3 = $("stockSuggest");
+      var rowHtml3 = "";
+      for (var e3 = 0; e3 < recSeqs.length; e3++) {
+        rowHtml3 += '<button class="seqchip" data-sug="' + recSeqs[e3] +
+          '" title="點一下套用這個構形序 ✓">' + recSeqs[e3] + "</button>";
+      }
+      if (row3) row3.innerHTML = rowHtml3;
+      if (sb3) sb3.hidden = !rowHtml3;
+      toast("這是 IDS 的等比分配（**沒有布局資訊** ✓ 所以醜 ✓）——" +
+        "系統建議您試試「" + recSeqs[0] + "」✓（點下去字就變漂亮了 ✓）", naive ? "ok" : "warn");
+    } else {
+      clearSuggestRow();
+      if ($("sugStage")) $("sugStage").hidden = false;
+      toast("這是構字式（IDS）" + st.ids + "——目前沒有現成的構形序 ✓；" +
+        "下方庫存區有兩個常見合文可以一點就看到 ✓", "warn");
+    }
+    note.textContent = "構字式（IDS）：" + idsToText(st.ids) +
+      (naive ? "　※大字是 IDC 等比分配（未經墨跡對齊 ✓ 所以醜 ✓）" : "") +
+      (rec ? "　→ 構形序：" + rec.seq : "");
+    $("seqNote").textContent = "";
+    $("philNote").textContent = "";
+    $("seqChips").innerHTML = "";
+    SEARCH = null; renderSearch(); uploadLinks(null);
+    return;
+  }
+
+  if (st.mode === "search") {    setMain(LIB, glyphIndexOf(st.owner || st.chars[0]));
+    /* 拼形拼不出來時，把**引擎的理由**放在這裡（例：`土` 不在 報 的 KAGE 樹裡）。
+       只寫「當成部件檢字」的話，使用者會以為是自己的輸入有問題。 */
+    note.textContent = st.reason ? "組不出來：" + st.reason
+                                 : "不是合法拼形式 → 當成部件檢字";
+    /* **用輸入區整串**當查詢語法（含 `+`／`/`／筆劃數／重複部件），跟 glyph-browser 一致。
+       整段包 try/catch：搜尋若丟例外，不接的話整個 render() 就中斷，
+       畫面會停在上一輪、而且看起來像「打什麼都沒反應」（踩過）。 */
+    var searchErr = "";
+    try {
+      /* 檢字條件＝**查詢關鍵字 ＋ 運算子**（`進辶` 要查「辶」；
+         `木/` 要查「木在上」）。不能整串丟進去，那會變成「同時含進與辶」。 */
+      runSearch(st.q || "");
+      candShown = CAND_MAX;
+    } catch (err) {
+      searchErr = String(err && err.message || err);
+      SEARCH = null;
+    }
+    if (searchErr) {
+      toast("檢字失敗：" + searchErr, "warn");
+      renderSearch();
+      renderBig(false);
+      renderSeq(st);
+      uploadLinks(st);
+      return;
+    }
+    /* 檢字的回饋：拼形失敗時先把「為什麼」講在前面（見上面的 `st.reason`） */
+    var findMsg = "部件檢字：" + (searchLabel(SEARCH && SEARCH.q) || "") +
+      "　" + SEARCH.cps.length.toLocaleString() + " 個字";
+    toast(st.reason ? "組不出來：" + st.reason + "　→ " + findMsg : findMsg, "warn");
+    renderSearch();
+    renderBig(false);
+    renderSeq(st);
+    uploadLinks(st);
+    return;
+  }
+
+  /* partial／ok 都畫 eval 的結果（partial 是基字本身）。
+     **描繪要包 try/catch**：引擎對某些組合會拋例外，不接的話整個 render() 就中斷，
+     畫面看起來就是「改了字但大字沒更新」。 */
+  var r = st.eval;
+  var drawErr = "";
+  try {
+    if (r && r.ok) setMain(r.lib, r.targetIdx);
+    else setMain(LIB, glyphIndexOf(st.owner || st.chars[0]));
+  } catch (e) {
+    drawErr = String(e && e.message || e);
+    setMain(null);
+  }
+  $("big").innerHTML = mainSvg();          /* 先把大字寫進去，renderBig 再補框層 */
+
+  if (st.mode === "partial") {
+    toast("已經選好要換掉的「" + st.oldCh + "」→ 接著打（或點）替換內容", "ok");
+    renderSuggest(st, null);          /* 中間狀態還沒有替換內容 → 沒有建議 ✓ */
+  } else if (r && r.log && r.log.length) {
+    /* 「串接部件」＝替換內容讀不成構形序列，引擎退化成**橫向等分**。
+       這**不是**原地換部件（使用者回報：輸入「報幸土业」，左邊變成「土业」水平合併，
+       以為是原地把 幸 裡的 土 換成 业），所以用 warn 色、訊息裡明講。 */
+    var rowLog = [], restLog = [];
+    for (var li = 0; li < r.log.length; li++) {
+      if (r.log[li].indexOf("串接部件") === 0) rowLog.push(r.log[li]); else restLog.push(r.log[li]);
+    }
+    if (rowLog.length) {
+      toast("橫向等分串接（不是原地換部件）：" + rowLog.join("；") +
+        (restLog.length ? "；" + restLog.join("；") : ""), "warn");
+    } else {
+      toast(restLog.join("；"), "ok");
+    }
+  }
+  /* **建議更好的基字**（第 111 輪）：同一個部件序列、但形式更好（「初衤禾」→「利刂刀」）✓。
+     放在這裡＝「已經組出來了」之後才建議（那時才知道第三個字 ✓）。
+     它會回傳一句「為什麼沒有建議」（候選全部疊墨時 ✓），要跟下面的警告**合併**，不要互相蓋掉 ✓。 */
+  var sugWarn = renderSuggest(st, r);
+  /* **警告客人：墨疊成一塊了**（第 112 輪依師父指示 ✓）——優先於其他訊息 ✓，
+     因為客人會以為「組出來了」就沒事 ✗（實測「庚广廣」就是一團墨 ✗）。 */
+  var inkWarn = inkWarningOf(st, r);
+  if (inkWarn) {
+    toast("這個組合的墨疊在一起了：" + inkWarn + "——換個基字或換個部件 ✓" +
+      (sugWarn ? "；" + sugWarn : ""), "warn");
+  } else if (sugWarn) {
+    toast(sugWarn, "warn");
+  }
+  /* 合成字形的碼位：**fork 出來的庫裡，被改寫的那個索引還帶著基字的碼位**
+     （實測 `報幸田` 印出 U+5831），照抄的話會讓人以為畫面上是原本那個字。
+     替換過的結果一律標「無碼位」，並把基字寫成「以 … 為基」。 */
+  var bc = MAIN ? codePointOf(MAIN.lib, MAIN.idx) : 0;
+  if (r && r.substituted) {
+    note.textContent = "組出來的形（無碼位" + (bc ? "　以 " + hex(bc) + " 為基" : "") + "）";
+  } else {
+    note.textContent = bc ? hex(bc) : (MAIN && MAIN.lib !== LIB ? "組出來的形（無碼位）" : "");
+  }
+  if (drawErr) {
+    note.textContent = "引擎描繪失敗：" + drawErr;
+    toast("引擎底層的問題（見 pinxing.md 的 P3「還沒通的」）：" + drawErr, "warn");
+  }
+
+  /* 單字：同時列出含它的字（規格第 7 條的檢字條件） */
+  if (st.showList) {
+    try {
+      runSearch(st.listTerm);
+      candShown = CAND_MAX;
+    } catch (err) {
+      SEARCH = null;
+      toast("檢字失敗：" + (err && err.message), "warn");
+    }
+    renderSearch();
+  } else {
+    SEARCH = null; renderSearch();
+  }  renderBig(true);
+  renderSeq(st);
+  uploadLinks(st);
+}
+
+/** 大字那塊重畫（框／粗細改了要重畫，但不要重跑求值）。
+ *
+ *  一定要用 `bigSvgHtml()`——不要自己接 `boxOverlaySvg()` 的字串：
+ *  它回傳的是 `<g>`，而 `<g>` 不是 HTML 元素，塞進 `innerHTML` 會被解析器整段丟掉，
+ *  症狀就是「大字的部件框不見了」（踩過）。「字框：無」就是不畫那一層。 */
+function renderBig(scroll) {
+  if (!MAIN) return;
+  try {
+    $("big").innerHTML = BOXMODE === "none"
+      ? mainSvg()
+      : bigSvgHtml(mainSvg(), MAIN.boxes, { mode: BOXMODE, active: ACTIVE_BOX });
+  } catch (e) {
+    $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
+  }
+  void scroll;
+}
+
+/** 「和字集瀏覽頁連動」的那一條連結（`glyph-browser.html?comp=…`）。
+    `comp` 要跟**搜尋實際用的關鍵字**一致：檢字模式是輸入區最後一個字
+    （`runSearch()` 就是用那個字），合理拼形是「要換掉的那個部件」。 */
+function uploadLinks(st) {
+  var toComp = "";
+  if (st && st.mode === "search") {
+    var chars = st.chars || [];
+    toComp = chars.length ? chars[chars.length - 1] : "";
+  } else if (st && st.mode === "partial") {
+    toComp = st.oldCh;
+  } else if (st && st.mode === "ok" && !st.single) {
+    /* 合理拼形：帶**最後一個字**（＝使用者正在看／正在換的那一個部件）。
+       多字時 st.chars[0] 是基字，帶基字過去沒什麼用。 */
+    var cs = st.chars || [];
+    toComp = cs.length ? cs[cs.length - 1] : "";
+  } else if (st && st.mode === "ok" && st.single && st.chars && st.chars.length) {
+    toComp = st.chars[0];                /* 單字：就是它自己 */
+  }
+  /* 檢字模式：帶**查詢語法裡的部件**（`木+` → 木；單獨一個「木」→ 木） */
+  if (st && st.mode === "search" && SEARCH && SEARCH.q && SEARCH.q.terms.length) {
+    toComp = SEARCH.q.terms[SEARCH.q.terms.length - 1];
+  }
+  var el = $("toBrowser");
+  if (!el) return;
+  el.textContent = toComp ? "用「" + toComp + "」到字集瀏覽頁查 →" : "";
+  el.setAttribute("aria-disabled", toComp ? "false" : "true");
+  el.dataset.comp = toComp;
+}
+
+/** 到字集瀏覽頁查目前的部件。
+ *
+ *  拆成兩支是為了**驗收**：`browserUrl()` 只算字串（驗收直接讀，不必真的跳頁——
+ *  真的跳走就沒有回報了，這一條踩過），`goToBrowser()` 才是跳頁。
+ *  點擊路徑本身很薄，但「按鈕會組出哪一條 URL」是看得到的。 */
+function browserUrl() {
+  var c = $("toBrowser").dataset.comp;
+  return c ? "glyph-browser.html?comp=" + encodeURIComponent(c) : "";
+}
+
+function goToBrowser() {
+  var url = browserUrl();
+  if (!url) return false;
+  location.href = url;
+  return true;
+}
+
+/* ============================ 事件 ============================ */
+function bind() {
+  /* 輸入就重畫（排到 microtask，見 scheduleRender） */
+  $("seq").addEventListener("input", scheduleRender);
+  $("seq").addEventListener("compositionend", scheduleRender);
+  $("seq").addEventListener("keyup", function () { renderSeq(lastEval); });
+  $("seq").addEventListener("click", function () { renderSeq(lastEval); });
+  $("seq").addEventListener("focus", function () { renderSeq(lastEval); });
+  /* Enter ＝ 存起來（使用者的要求）。例外要說出來：這條是鍵盤路徑，
+     靜靜失敗只會看到「按了沒反應」。 */
+  $("seq").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    /* 例外要說出來：這是鍵盤路徑，靜靜失敗只會看到「按了沒反應」。 */
+    try { saveCurrentSeq(); }
+    catch (err) { toast("存不起來：" + (err && err.message)); }
+  });
+
+  /* **建議更好的基字**（第 112 輪）：並排的那個（#sugStage）與庫存區的格子（#sugRow）
+     點一下＝把建議的輸入字串（利刂刀）帶進輸入區並重畫 ✓。
+     一律由客人點才換（不自動改 ✓——目標是「讓客人檢視挑擇」）。 */
+  function pickSuggestion(target) {
+    var b = target && target.closest ? target.closest("[data-sug]") : null;
+    if (!b) return;
+    $("seq").value = b.getAttribute("data-sug");
+    render();
+    $("seq").focus();
+  }
+  if ($("sugStage")) $("sugStage").addEventListener("click", function (e) { pickSuggestion(e.target); });
+  if ($("sugRow")) $("sugRow").addEventListener("click", function (e) { pickSuggestion(e.target); });
+
+  /* ★ 師父第 124 輪：「拆成 IDS」按鈕 ✓——客人不會打 IDC ✓，所以要有按鈕 ✓。
+     按一下＝把輸入區那個字拆成構字式（IDS）✓ → 立刻看到 **IDS 的等比分配（醜）** ✓
+     與 **構形序的美形**（並排 ✓）的差別 ✓。 */
+  if ($("toIds")) $("toIds").addEventListener("click", function () {
+    var v = String($("seq").value || "").replace(/\s+/g, "");
+    var first = Array.from(v)[0];
+    if (!first) { toast("先在上面打一個字（例：學）✓ 再按「拆成 IDS」✓", "warn"); return; }
+    var ids = idsOfChar(first);
+    if (!ids) {
+      toast("「" + first + "」在畫法裡沒有可直接拆的部件 ✓（獨體字或引用不足 ✓）——" +
+        "可以改用部件檢字看它的組成 ✓", "warn");
+      return;
+    }
+    $("seq").value = ids;
+    render();
+    $("seq").focus();
+    toast("已拆成構字式：" + ids + " ✓——大字是 IDC 等比分配（醜 ✓）、右邊是構形序（美 ✓）", "ok");
+  });
+
+  /* 部件序列：點一下＝用那個部件替換掉它自己的槽位。
+     `data-parent` 是「要換掉誰」（有槽位的＝自己；IDS 內嵌部件＝掛它的那個節點）。
+     **`data-stuck` 的格子點不動**：那個部件引擎沒有槽位可以放新內容，
+     點下去只會得到一串永遠換不掉的輸入（見 `componentChips()`）。 */
+  $("seqChips").addEventListener("click", function (e) {
+    var mini = e.target.closest ? e.target.closest(".mini.comp") : null;
+    if (!mini) return;
+    if (mini.getAttribute("data-stuck")) return;
+    var ch = mini.getAttribute("data-ch");
+    var parent = mini.getAttribute("data-parent") || ch;
+    if (!ch) return;
+    replaceWith(ch, parent);
+  });
+
+  /* 庫存：點一列 ＝ 把整個序列帶進輸入區；「刪」只刪自存的 */
+  $("stock").addEventListener("click", function (e) {
+    var del = e.target.closest ? e.target.closest(".delStock") : null;
+    if (del) {
+      var mine = loadUserStock();
+      mine.splice(Number(del.getAttribute("data-i")), 1);
+      saveUserStock(mine);
+      $("stock").innerHTML = stockHtml();
+      return;
+    }
+    var row = e.target.closest ? e.target.closest(".stockrow") : null;
+    if (!row) return;
+    /* ★ 師父第 127 輪：合文那兩個按鈕送的是 **IDS** ✓（不是構形序 ✗）——
+       客人先看到「IDS 組出來的醜字」✓，再自己點建議、字形才變美 ✓（別一次掀底牌 ✓）。 */
+    $("seq").value = row.getAttribute("data-send") || row.getAttribute("data-seq");
+    ACTIVE_BOX = -1;
+    render();
+  });
+
+  $("saveSeq").addEventListener("click", saveCurrentSeq);
+
+  /* 筆劃粗細：改 WSCALE 之後**一定要清快取**，否則畫面上還是舊粗細 */
+  $("wscale").addEventListener("input", function () {
+    WSCALE = Number(this.value) / 100;
+    $("wscaleV").textContent = this.value + "%";
+    clearAllCache();
+    renderBig(false);
+    renderSeq(lastEval);
+  });
+
+  /* 字框：三態（緊 → 原 → 無） */
+  $("boxMode").addEventListener("click", function () {
+    BOXMODE = BOXMODE === "tight" ? "raw" : BOXMODE === "raw" ? "none" : "tight";
+    try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
+    applyBoxMode();
+    renderBig(false);
+  });
+
+  /* 點大字的框 ↔ 部件序列互相亮起 */
+  $("big").addEventListener("click", function (e) {
+    var r = e.target.closest ? e.target.closest(".cbox") : null;
+    ACTIVE_BOX = r ? Number(r.getAttribute("data-box")) : -1;
+    renderBig(false);
+    renderSeq(lastEval);
+  });
+
+  /* 候選：點一下把該字選為基字 */
+  $("cands").addEventListener("click", function (e) {
+    var cell = e.target.closest ? e.target.closest(".cell") : null;
+    if (!cell) return;
+    var cp = Number(cell.getAttribute("data-cp"));
+    $("seq").value = String.fromCodePoint(cp);
+    ACTIVE_BOX = -1;
+    render();
+    $("seq").focus();
+  });
+  $("moreBtn").addEventListener("click", function () { candShown += CAND_MAX * 2; renderSearch(); });
+
+  $("toBrowser").addEventListener("click", function () { goToBrowser(); });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && $("seq").value) {
+      $("seq").value = "";
+      ACTIVE_BOX = -1;
+      render();
+    }
+  });
+}
+
+/** 點部件格＝**用它替換**：在輸入區裡把 `parent` 後面那個字換成 `ch`。
+ *
+ *  使用者定案的語意：「點一下 用它更換」。
+ *    * 「」裡是基字本身（例：進 的 隹）→ 輸入區變成「進隹」（指名要換掉進的隹）。
+ *    * 基字後面已經有那個槽位（例：邏羅 的 羅）→ 換掉它，變成「邏<新>」。
+ *    * IDS 內嵌部件（例：寶 的 缶，`parent` 是 寶）→ 「寶缶」。
+ *  這樣兩條規則就涵蓋規格〈招財進寶〉動線的每一步。 */
+function replaceWith(ch, parent) {
+  var el = $("seq");
+  var seq = el.value.replace(/\s+/g, "");
+  var chars = Array.from(seq);
+  var at = chars.indexOf(parent);
+  var next;
+  if (at < 0) next = seq + ch;                    /* 找不到那個字（例：輸入區被改過）→ 接上去 */
+  else next = chars.slice(0, at + 1).join("") + ch;
+  el.value = next;
+  ACTIVE_BOX = -1;
+  render();
+  el.focus();
+}
+
+/** 基字整棵樹裡的部件字元（判斷「這個部件已經在輸入區裡了嗎」）。 */
+var levelNameCache = new Map();
+function levelNamesOf(baseIdx) {
+  var hit = levelNameCache.get(baseIdx);
+  if (hit) return hit;
+  var out = [], stack = [baseIdx], seen = new Set([baseIdx]);
+  while (stack.length) {
+    var i = stack.pop();
+    var kids = refKidsOf(i);
+    for (var k = 0; k < kids.length; k++) {
+      var j = kids[k];
+      if (seen.has(j)) continue;
+      seen.add(j);
+      var nm = compCharOf(j);
+      if (nm && out.indexOf(nm) < 0) out.push(nm);
+      stack.push(j);
+    }
+  }
+  if (levelNameCache.size > 500) levelNameCache.clear();
+  levelNameCache.set(baseIdx, out);
+  return out;
+}
+
+/** 基字的直接部件（**用部件字元比對**，不是字形索引）。
+    字形索引比對會踩到相容異體：`進` 引用的 `辶` 與使用者點的 `辶` 是不同的字形索引。 */
+function compKidsByName(gi) {
+  var kids = refKidsOf(gi), out = [];
+  for (var k = 0; k < kids.length; k++) out.push(compCharOf(kids[k]));
+  return out;
+}
+
+/* ============================ 開頁 ============================ */
+function gunzip(raw) {
+  if (typeof DecompressionStream === "function") {
+    var stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"));
+    return new Response(stream).arrayBuffer().then(function (b) { return new Uint8Array(b); });
+  }
+  return Promise.reject(new Error("此瀏覽器不支援 DecompressionStream"));
+}
+function b64ToBytes(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
+
+/** `?baseglyph=U+xxxx`（從字集瀏覽頁帶基字進來）。前綴與大小寫都要容錯。
+ *
+ *  **要先把 `location.search` 解碼，而且要解到沒有百分號編碼為止**：
+ *  `+` 在查詢字串裡是合法的保留字元，用 `?baseglyph=U%2B908F` 帶過來時，
+ *  `location.search` 是編碼後的字串，直接套 `/U\+/` 會對不上
+ *  （實測得到 baseglyph=null）；Edge 開 `file://` 還會再多編一層（`%2B` → `%252B`）。 */
+function cpFromQuery() {
+  var raw = location.search;
+  for (var i = 0; i < 3; i++) {
+    if (raw.indexOf("%") < 0) break;
+    var next;
+    try { next = decodeURIComponent(raw); } catch (e) { break; }
+    if (next === raw) break;
+    raw = next;
+  }
+  var m = /[?&]baseglyph=(?:U\+|U|0x|0X)?([0-9a-fA-F]{4,6})/.exec(raw);
+  if (!m) return null;
+  var cp = parseInt(m[1], 16);
+  return cp > 0 && cp <= 0x10FFFF ? cp : null;
+}
+
+var t0 = performance.now();
+
+gunzip(b64ToBytes(LIB_B64))
+  .then(function (bin) {
+    LIB = decodeLibrary(bin);
+    var decodeMs = Math.round(performance.now() - t0);
+    applyBoxMode();
+    $("stock").innerHTML = stockHtml();
+    bind();
+
+    var cp = cpFromQuery();
+    if (cp !== null) {
+      var g = String.fromCodePoint(cp);
+      if (glyphIndexOf(g) !== undefined) $("seq").value = g;
+    }
+    render();
+
+    /* 給 headless 驗收讀的（見 tools/check-pinxing.ts） */
+    window.__READY__ = {
+      glyphs: LIB.glyphs.length,
+      families: LIB.families.length,
+      decodeMs: decodeMs,
+      baseglyph: cp
+    };
+    window.__STATE__ = function () {
+      var st = lastEval;
+      return {
+        seq: $("seq").value,
+        mode: st ? st.mode : null,
+        ready: st ? !!st.ready : null,
+        msg: $("msg").textContent,
+        cap: $("seqNote").textContent,
+        chipCount: $("seqChips").querySelectorAll(".mini.comp").length,
+        boxCount: $("big").querySelectorAll(".cbox").length,
+        boxMode: BOXMODE,
+        boxLabel: $("boxMode").textContent,
+        candCount: SEARCH ? SEARCH.cps.length : 0,
+        candTerm: SEARCH ? SEARCH.term : "",
+        candCells: $("cands").querySelectorAll(".cell").length,
+        bigIdx: MAIN ? MAIN.idx : -1
+      };
+    };
+  })
+  .catch(function (e) {
+    document.body.innerHTML = '<div style="padding:20px;color:#ff8080">載入失敗：' + (e && e.message) +
+      (e && e.stack ? "｜" + String(e.stack).split("\n").slice(0, 3).join(" ← ") : "") + "</div>";
+  });
