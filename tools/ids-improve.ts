@@ -25,6 +25,8 @@ import { indexOfCodePoint, keyOfIdx, toKageData } from "./lib-format.ts";
 import { rasterize } from "./raster.ts";
 import { normalizedMask } from "./shape-similarity.ts";
 import { parseSeqTree } from "./seq-search.ts";
+import { crossScore } from "./cross-compare.ts";
+import { spreadOf } from "./spread-compare.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const argv = process.argv.slice(2);
@@ -203,6 +205,15 @@ function pickRefChar(IDS: string, forcedChar: string | undefined, seq: string): 
   /* ★★ 第 145 輪：**這不是真字** ✓——徒兒第 142～144 輪一直拿它當「天花板」✗，
      量出來的「今法比古法差」✗ 就是這樣來的 ✗（量錯了對象 ✗）。
      所以現在**明講**它是「不是真字」✓，而且下面的比較會**標示出來** ✓。 */
+  /* ★★★ 第 156 輪：**在走那個循環的後備之前，先試「結構比對」** ✓。
+   *
+   *  ⚠ 徒兒前三輪都在這一支上超支 ✗（`pickRefCharStable` 至今沒接上 ✗），
+   *    但這一輪**只需要一件事** ✓：讓 `⿰木垚` 認得 `桂` ✓、好學孔孟認得 `好` ✓，
+   *    這樣它們就**不會**掉進「沒有真字」那條路 ✗（判準就不會啟動 ✗）。
+   *  ✅ `pickRefCharStable()` 已經寫好 ✓（第 155 輪 ✓，只加 helper ＋ 結構比對 ✓），
+   *    這裡只是**接上它** ✓——一行 ✓。它挑不到就照舊 ✓（不改變原本的行為 ✓）。 */
+  const stable = pickRefCharStable(IDS, undefined);
+  if (stable && stable.kind === "葉序相同") return { cp: stable.cp, kind: "葉序相同" };
   const first = seq ? Array.from(seq)[0] : undefined;
   return first ? { cp: first.codePointAt(0)!, kind: "不是真字" as RefKind } : undefined;
 }
@@ -221,25 +232,67 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
   let SEQ = forcedSeq ?? "";
   let src = "指定的 ✓";
   if (!SEQ) {
+    /* ★★★ 第 156 輪：**只接那個判準** ✓（第 152 輪就量出來了，徒兒拖了三輪 ✗）。
+     *
+     *  師父抓到「`璡辶進` 是不對的！一定會造成重疊！」之後，徒兒試了**五個**代理量
+     *  （框重疊 ✗、骨架交錯 ✗、墨疊 ✗、互侵 ✗、厚墨比 ✗）**全部校準失敗** ✗，
+     *  只有**兩個既有量的聯合**分得開 ✓：
+     *
+     *  | 候選 | 交錯 | 路徑 | 交錯<0.03 | 路徑>=35 |
+     *  | --- | ---: | ---: | --- | --- |
+     *  | **正解** | **0.000** | **89** | ✓ | ✓ → 通過 |
+     *  | **`璡辶進`** | **0.055** | 50 | ✗ | ✓ → 拒 |
+     *  | `䗯辶進` | 0.065 | 54 | ✗ | → 拒 |
+     *  | `邏` | 0.000 | 54 | ✓ | ✓ → 通過 |
+     *
+     *  ⚠ **只對「沒有真字」的題生效** ✓——徒兒第 153 輪試過對**所有**案例套用 ✗，
+     *    結果 `明`（交錯 0.143 ✗、路徑只有 17 ✗）**被自己的判準擋掉** ✗，
+     *    `⿰日月` 從 **1.000** 退成 0.345 ✗。
+     *    原因很清楚 ✓：**有真字時，交錯高、路徑少是漢字的本性** ✓，不是壞事 ✗。
+     *    沒有真字時（六葉那題 ✗）才需要用「交錯 ＋ 路徑」當**代理標準** ✓。
+     *
+     *  ⚠ 這裡刻意**不碰**真字選擇 ✗（前三輪徒兒在這裡超支 ✗）——
+     *    只用一個獨立的 `hasRealRef` ✓（`pickRefCharStable()` 還沒接上 ✓）。 */
+    /* ⚠ 徒兒第一版用 `pickRefCharStable()` 判「有沒有真字」✗ ——
+     *   但它對 `⿰日月`／`⿰⿱日月皿` **失敗** ✗（回 undefined ✗），
+     *   於是判準啟動 ✗ → `明` 被擋 ✗ → **退步** ✗（實測 1.000 → 0.345 ✗）。
+     * ✅ 改用**原本的** `pickRefChar()` ✓（它對 `⿰日月` 回 `明` ✓）；
+     *   判準只在它說「**不是真字**」時啟動 ✓（六葉那題就是 ✓）。 */
+    const earlyRef = pickRefChar(IDS, forcedChar, "");
+    const hasRealRef = !!earlyRef && earlyRef.kind !== "不是真字";
+    const CROSS_MAX = Number(arg("--cross-max", "0.03"));
+    const PATHS_MIN = Number(arg("--paths-min", "35"));
+    const aG0 = idsGlyph(IDS, lib);
+    const aCross0 = aG0.ok ? crossScore(aG0.lib, aG0.idx).score : 0;
+    const W0 = Number(arg("--weight", "0.30"));
     const r = (globalThis as any).__search(lib, IDS, { judgeMax: judgeMax });
     if (r.ok && r.candidates.length) {
-      /* ★ 在前 PICK 條裡挑「墨跡最像真字」的那一條 ✓ */
+      /* ★ 在前 PICK 條裡挑 ✓（**墨跡 IoU** ✓ ＋ 沒有真字時用**交錯／路徑**把關 ✓） */
       const PICK = Number(arg("--pick", "40"));
-      let bestSeq = r.candidates[0]!.seq, bestV = -1;
+      let bestSeq = r.candidates[0]!.seq, bestScore = -Infinity;
       for (const c of r.candidates.slice(0, PICK)) {
-        let v = 0;
+        let v = 0, x = aCross0, np = 0;
         try {
           const q = evalSeq(lib, c.seq, {});
           if (q && q.ok) {
             const m = maskOf(q.lib, q.targetIdx);
+            const sp = spreadOf(q.lib, q.targetIdx);
+            x = sp.cross; np = sp.paths;
             if (m && refMask) v = iou(refMask, m);
             else v = 0.001;                       /* 沒有真字可量時，退回「第一條」✓ */
           }
         } catch { v = 0; }
-        if (v > bestV) { bestV = v; bestSeq = c.seq; }
+        /* ★ 沒有真字時，通過判準者**優先** ✓（有真字時不加 ✓，見上面的說明 ✓） */
+        const okc = !hasRealRef && x < CROSS_MAX && np >= PATHS_MIN;
+        /* ★ 有真字時：**完全照原來的行為** ✓（純 IoU 最大 ✓，不加罰分 ✗）——
+         *   ⚠ 徒兒第一版加了 `- W0 * (x - aCross0)` ✗，結果 `⿰日月` 從
+         *     **`明`（1.000）** 退成 `𮲗日昍`（0.246）✗ —— 那個罰分偷偷把 `明` 推掉了 ✗。
+         *   ✅ 沒有真字時才用「交錯 ＋ 路徑」把關 ＋ 罰分 ✓（那題本來就沒有可比的答案 ✓）。 */
+        const sc = hasRealRef ? v : ((okc ? 1e6 : 0) + v - W0 * (x - aCross0));
+        if (sc > bestScore) { bestScore = sc; bestSeq = c.seq; }
       }
       SEQ = bestSeq;
-      src = "系統當場算 ✓（" + r.candidates.length + " 條候選，前 " + Math.min(PICK, r.candidates.length) + " 條比墨跡 ✓）";
+      src = "系統當場算 ✓（" + r.candidates.length + " 條候選，前 " + Math.min(PICK, r.candidates.length) + " 條比" + (hasRealRef ? "墨跡 IoU" : "墨跡 ＋ 交錯／路徑（沒有真字 ✗，用 交錯<" + CROSS_MAX + "、路徑≥" + PATHS_MIN + " 把關 ✓）") + " ✓）";
     } else src = "系統算不出來 ✗";
   }
   /* ★ 真字與它的墨跡（挑候選要用它當目標 ✓；需要 SEQ 才知道最後的後備 ✓） */
