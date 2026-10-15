@@ -90,6 +90,10 @@ const html = `<!DOCTYPE html>
   .iconbtn svg { width:22px; height:22px; display:block; }
   /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的構形序時才出現 ✓） */
   #wand { font-size:20px; line-height:1; }
+  /* ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
+     「.iconbtn」有「display:flex」，所以「[hidden]」單獨是**沒有用的** ✗。
+     這條是「JS 還沒跑之前」的保險 ✓；跑起來之後由「showEl()」的行內 display 接手 ✓。 */
+  #wand[hidden] { display:none; }
   .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; }
   button { padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card);
            color:var(--fg); font:inherit; cursor:pointer; white-space:nowrap; }

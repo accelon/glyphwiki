@@ -1007,7 +1007,10 @@ function setWand(seqs, keepIfCurrent) {
              $("seq").value === WAND.seqs[WAND.ix])) {
     WAND.seqs = []; WAND.ix = -1;
   }
-  if (b) b.hidden = !WAND.seqs.length;
+  /* ⚠ 一定要用 showEl ✓——`.iconbtn` 的 `display:flex` 是作者樣式，
+     會蓋掉 `[hidden]` 的 `display:none` ✗：只設 `hidden` 的話按鈕**還是看得見** ✗
+     （第 112 輪的同一個坑；師父 2026-10-15 一開始就看到了 ✓）。 */
+  showEl(b, WAND.seqs.length > 0);
 }
 
 /** 點魔術棒：把**下一個**建議的構形序填進輸入區並重畫 ✓（再點換下一個 ✓）。 */

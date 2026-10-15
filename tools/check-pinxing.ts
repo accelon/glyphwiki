@@ -207,6 +207,13 @@ if (!existsSync(EDGE)) {
         if (bel.tagName !== "SCRIPT") vis += bel.textContent + " ";
       }
       out.push("loadError=" + (/載入失敗/.test(vis) ? 1 : 0));
+      /* ★ 一開始（還沒輸入）魔杖必須**看不見** ✓——
+         ⚠ 只驗「hidden」不夠 ✗：「.iconbtn」的 display:flex 會蓋掉 [hidden] ✗，
+           一定要驗 getComputedStyle 的 display ✓（第 112 輪的同一個坑 ✓）。 */
+      var wand0 = document.getElementById("wand");
+      out.push("PwandInit=hidden=" + (wand0 ? String(!!wand0.hidden) : "MISSING") +
+        ",disp=" + (wand0 ? getComputedStyle(wand0).display : "?") +
+        ",seq=" + encodeURIComponent(seqEl().value));
       /* 初始化失敗時把**錯誤訊息本體**帶出來——只給前 60 字會看不到原因 ✗（踩過）。 */
       var em = /載入失敗：([\s\S]{0,300})/.exec(vis);
       out.push("loadErrMsg=" + encodeURIComponent(em ? em[1].replace(/\\s+/g, " ") : ""));
@@ -691,6 +698,7 @@ if (!existsSync(EDGE)) {
       if (wandEl) wandEl.click();
       out.push("PwandClick=" + encodeURIComponent(seqEl().value + " mode=" + S().mode +
         " hidden=" + String(!!wandEl.hidden) +
+        " disp=" + getComputedStyle(wandEl).display +
         " bigPaths=" + document.querySelectorAll("#big svg path").length));
       var wandV1 = seqEl().value;
       if (wandEl) wandEl.click();
@@ -699,13 +707,15 @@ if (!existsSync(EDGE)) {
          全部建議都看過了就收起 ✓；還有多個沒看過才留著可再點 ✓（⿰木垚 有 4 個 ✓）。 */
       setSeq("⿰木垚");
       out.push("PwandMulti=hidden=" + (wandEl ? String(!!wandEl.hidden) : "MISSING") +
+        ",disp=" + (wandEl ? getComputedStyle(wandEl).display : "?") +
         ",n=" + (window.WAND ? window.WAND.seqs.length : -1));
       if (wandEl) wandEl.click();
       var wandM1 = seqEl().value;
-      out.push("PwandMulti1=" + encodeURIComponent(wandM1 + " hidden=" + String(!!wandEl.hidden)));
+      out.push("PwandMulti1=" + encodeURIComponent(wandM1 + " hidden=" + String(!!wandEl.hidden) +
+        " disp=" + getComputedStyle(wandEl).display));
       if (wandEl) wandEl.click();
       out.push("PwandMulti2=" + encodeURIComponent((seqEl().value === wandM1 ? "same:" : "next:") + seqEl().value +
-        " hidden=" + String(!!wandEl.hidden)));
+        " hidden=" + String(!!wandEl.hidden) + " disp=" + getComputedStyle(wandEl).display));
       setSeq("⿳𦥯⿰女孔皿");
       var idsChips2 = document.querySelectorAll("#sugRow .seqchip");
       out.push("Pids2=" + encodeURIComponent(idsChips2.length ? (idsChips2[0].getAttribute("data-sug") || "") : "MISSING") +
@@ -723,7 +733,9 @@ if (!existsSync(EDGE)) {
          ② IDS 的組字**故意按 IDC 等比分配**（醜 ✓），右邊並排構形序（美 ✓）
          ③ 構形序那格可點、點下**取代 IDS** ✓（用 124 那條已有的點擊斷言驗 ✓） */
       setSeq("好");
-      out.push("PwandIdle=" + (document.getElementById("wand") ? String(!!document.getElementById("wand").hidden) : "MISSING"));
+      var wandI = document.getElementById("wand");
+      out.push("PwandIdle=" + (wandI ? String(!!wandI.hidden) : "MISSING") +
+        ",disp=" + (wandI ? getComputedStyle(wandI).display : "?"));
       var toIdsBtn = document.getElementById("toIds");
       out.push("PtoIdsBtn=" + (toIdsBtn ? "yes" : "MISSING"));
       if (toIdsBtn) toIdsBtn.click();
@@ -1224,32 +1236,38 @@ if (!existsSync(EDGE)) {
       const wandClick = txt("PwandClick");
       const wandClick2 = txt("PwandClick2");
       const wandIdle = txt("PwandIdle");
+      const wandInit = txt("PwandInit");
       const wandMulti = txt("PwandMulti");
       const wandMulti1 = txt("PwandMulti1");
       const wandMulti2 = txt("PwandMulti2");
       const wandN = Number(/n=(\d+)/.exec(wandRaw)?.[1] ?? "0");
+      /* ★ 一開始（還沒輸入）就必須**看不見** ✓——只驗 hidden 不夠 ✗：
+         `.iconbtn` 的 display:flex 會蓋掉 [hidden] ✗，要驗 computed display ✓。 */
+      /^hidden=true,disp=none,seq=$/.test(wandInit)
+        ? ok("一開始（還沒輸入）魔杖就收著 ✓（computed display=none ✓）")
+        : bad(`一開始就看得到魔杖：${wandInit}`);
       /^yes,text=🪄,hidden=false,disp=flex,before=saveSeq,n=[1-9]/.test(wandRaw)
         ? ok(`魔術棒 🪄 就位（在「存起來」左邊 ✓、建議 ${wandN} 個 ✓）`)
         : bad(`魔術棒不對：${wandRaw.slice(0, 140)}`);
-      /* ★ 沒有推薦構字序時**一定要隱藏** ✓（師父的指示）——
+      /* ★ 沒有推薦構字序時**一定要隱藏** ✓（師父的指示；連 computed display 一起驗 ✓）——
          只有 1 個建議時：點完就收起 ✓；還有多個沒看過才留著 ✓。 */
       /mode=(ok|partial)/.test(wandClick) && /bigPaths=[1-9]/.test(wandClick) &&
-      (/hidden=true/.test(wandClick) === (wandN <= 1))
+      (wandN <= 1 ? /hidden=true disp=none/.test(wandClick) : /hidden=false disp=flex/.test(wandClick))
         ? ok(`點魔術棒 → 建議的構形序填進輸入區並組出來（${wandClick}）；` +
             (wandN <= 1 ? "只剩這一個→魔杖收起 ✓" : "後面還有→魔杖留著 ✓"))
         : bad(`點魔術棒不對：${wandClick}（建議 ${wandN} 個）`);
       /^next:/.test(wandClick2)
         ? ok(`再點一次 → 換下一個建議（${wandClick2}）✓`)
         : ok(`只有一個建議時，再點仍是同一個（${wandClick2}）`);
-      /^hidden=false,n=[2-9]/.test(wandMulti)
+      /^hidden=false,disp=flex,n=[2-9]$/.test(wandMulti)
         ? ok(`有 ${/n=(\d+)/.exec(wandMulti)?.[1]} 個建議時魔杖留著可再點 ✓`)
         : bad(`多個建議時魔杖狀態不對：${wandMulti}`);
-      /hidden=false/.test(wandMulti1) && /hidden=false/.test(wandMulti2)
+      /hidden=false disp=flex/.test(wandMulti1) && /hidden=false disp=flex/.test(wandMulti2)
         ? ok(`還有多個沒看過 → 魔杖繼續留著（${wandMulti2}）✓`)
         : bad(`多個建議的收起時機不對：${wandMulti1}／${wandMulti2}`);
-      wandIdle === "true"
-        ? ok("不是 IDS 模式時，魔術棒收起來 ✓")
-        : bad(`魔術棒不該在一般模式出現：hidden=${wandIdle}`);
+      /^true,disp=none$/.test(wandIdle)
+        ? ok("不是 IDS 模式時，魔術棒收起來 ✓（computed display=none ✓）")
+        : bad(`魔術棒不該在一般模式出現：${wandIdle}`);
       /,mode=ids$/.test(ids2) && ids2.indexOf("𦧀") === 0
         ? ok(`第二個合文（好學孔孟）也認得：${ids2} ✓`)
         : bad(`第二個 IDS 不對：${ids2}`);
