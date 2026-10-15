@@ -50,6 +50,8 @@ export interface CompBox {
   idsOnly: boolean;
   /** 出現序號（含重複，林 = 兩個木依序 0、1） */
   order: number;
+  /** 這一格在**父字 `strokes` 裡的索引** ✓（量引擎墨跡要用 ✓；IDS 補的＝-1 ✓） */
+  strokeIx?: number;
 }
 
 /* ------------------------------------------------------------------ 量墨跡 */
@@ -176,7 +178,8 @@ export function rawClusters(strokes: { kind: number; points: number[] }[], need:
   return axisBoxes(aspectX) ?? axisBoxes(!aspectX);
 }
 
-export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure, opt?: { deep?: boolean }): CompBox[] {
+export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure,
+                                opt?: { deep?: boolean; inkOfRef?: (parentIdx: number, strokeIx: number) => Box | null }): CompBox[] {
   /* ★★ 第 138 輪（師父的回報 ✓）：**深層框**。
      症狀：同一個字，**IDS 版看得到 4 個子框、構形序版只有 2 個** ✗。
      原因不是誰畫錯 ✗——`refSlotsOf()` 只回**根的引用槽** ✓，而構形序的根常常只有 2 個分量 ✓
@@ -186,8 +189,9 @@ export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure, opt?:
      一路把子框經引用框**投影**回父座標 ✓。
      ⚠ 預設**不遞迴** ✓（`glyph-browser` 與既有斷言的行為完全不變 ✓）。 */
   const deep = !!(opt && opt.deep);
+  const inkOfRef = opt && opt.inkOfRef;
   const bases: { box: Box | null; out: CompBox[] }[] = [];
-  collectBoxes(L, gi, inkOf, deep, null, bases, 0);
+  collectBoxes(L, gi, inkOf, deep, null, bases, 0, inkOfRef);
   const out: CompBox[] = [];
   for (let b = 0; b < bases.length; b++) {
     const parent = bases[b]!.box;
@@ -253,36 +257,61 @@ function placeTf(slot: Box, childInk: Box | null): Tf {
 function rawRefBoxes(L: Library, g: number): CompBox[] {
   const out: CompBox[] = [];
   const slots = refSlotsOf(L, drawingIdx(L, g));
-  for (const s of slots) {
-    out.push({ ref: s.ref, refName: s.refName, slotIx: out.length,
+  for (let k = 0; k < slots.length; k++) {
+    const s = slots[k]!;
+    out.push({ ref: s.ref, refName: s.refName, slotIx: k, strokeIx: s.strokeIx,
                raw: s.box as Box, tight: null, idsOnly: false, order: out.length });
   }
   return out;
 }
 
-export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure): DescBox[] {
+/** `inkOfPath`（可選）＝**引擎**量的「這條引用鏈在**根座標**的墨跡框」✓——
+ *  **有給就用它當 `abs`** ✓（那才是「能包住所有筆劃的**最小框**」✓，含框與 `stretch` ✓）；
+ *  沒給才退回這裡自己乘變換的估計 ✗（「等比縮放後置中」的模型遇到 `stretch` 會偏 ✗，
+ *  症狀是孫框比它的父框還高／還寬 ✗，師父 2026-10-15 抓到 ✓）。 */
+export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure,
+                                inkOfPath?: (path: number[]) => Box | null): DescBox[] {
   const measure: InkMeasure = inkOf ?? ((i: number) => inkBoundsFromStrokes(L, i));
   const out: DescBox[] = [];
-  /** 把一層的框收進來 ✓；回傳「還值得往下走的引用」✓（帶它自己的座標變換 ✓）。 */
-  const emit = (boxes: CompBox[], tf: Tf, depth: number): { ref: number; tf: Tf }[] => {
-    const next: { ref: number; tf: Tf }[] = [];
+  type Frame = { ref: number; tf: Tf; path: number[] };
+  /** 沿著引用路徑走到的那個字形 ✓（`path` 是每一層的 `strokeIx` ✓）。 */
+  const refAtPath = (path: number[]): number | null => {
+    let g = drawingIdx(L, gi);
+    for (const six of path) {
+      const s = refSlotsOf(L, g).find((x) => x.strokeIx === six);
+      if (!s) return null;
+      g = drawingIdx(L, s.ref);
+    }
+    return L.glyphs[g] ? g : null;
+  };
+  /** 把一層的框收進來 ✓；回傳「還值得往下走的引用」✓（帶它的座標變換與**引用路徑** ✓）。 */
+  const emit = (boxes: CompBox[], tf: Tf, depth: number, prefix: number[]): Frame[] => {
+    const next: Frame[] = [];
     for (const e of boxes) {
-      const canRef = e.ref >= 0 && e.ref < L.glyphs.length;
-      const ink = canRef ? measure(e.ref) : null;
+      const ink = e.ref >= 0 && e.ref < L.glyphs.length ? measure(e.ref) : null;
       const childTf = e.raw ? tfThen(tf, placeTf(e.raw, ink)) : null;
-      /* 有墨就畫「**墨跡的落點**」✓（引擎語意 ✓）；沒有墨（IDS-only）才退回它自己的框 ✓。 */
-      const abs = (ink && childTf) ? tfBox(ink, childTf)
-        : (e.raw ? tfBox(e.raw, tf) : (e.tight ? tfBox(e.tight, tf) : null));
+      const path = (e.strokeIx !== undefined && e.strokeIx >= 0) ? prefix.concat(e.strokeIx) : null;
+      /* 這條路徑**實際走到的那個字形** ✓——身分要跟它對齊 ✓：
+         `componentBoxesShallow` 會把「跨碼位異體」那一格**改名**（例 想 的 IDS `相` 配到 KAGE 的 `目` 格 ✗），
+         那時 `e.ref` 與路徑上的實際引用不同 ✗——硬用會走到錯的子樹 ✗。 */
+      const actual = path ? refAtPath(path) : null;
+      /* ★ 首選：問**引擎**要這條鏈的墨跡框 ✓（＝能包住所有筆劃的**最小框** ✓，含框與 stretch ✓）。 */
+      let abs: Box | null = null;
+      if (inkOfPath && path && actual !== null) { try { abs = inkOfPath(path); } catch { abs = null; } }
+      /* 退路：自己乘變換（沒有引擎、或 IDS-only 時用 ✓）。 */
+      if (!abs) {
+        abs = (ink && childTf) ? tfBox(ink, childTf)
+          : (e.raw ? tfBox(e.raw, tf) : (e.tight ? tfBox(e.tight, tf) : null));
+      }
       out.push({ ...e, order: out.length, abs, depth });
-      /* 只往**真正的 KAGE 引用**走 ✓（`slotIx >= 0`）——
-         IDS 補的部件（`slotIx === -1`）在畫法裡不是一格巢狀的字形 ✗，往裡走會畫出假的框 ✗。 */
-      if (childTf && e.slotIx >= 0 && canRef) next.push({ ref: e.ref, tf: childTf });
+      /* 只往**真正的 KAGE 引用**走 ✓（`slotIx >= 0`），而且要用**路徑上的實際引用** ✓ */
+      if (path && actual !== null && e.slotIx >= 0) next.push({ ref: actual, tf: childTf ?? tf, path });
     }
     return next;
   };
-  const step = (from: { ref: number; tf: Tf }[], depth: number): void => {
+  const step = (from: Frame[], depth: number): void => {
     if (depth > 12 || !from.length) return;
-    const next: { ref: number; tf: Tf }[] = [];
+    const next: Frame[] = [];
     for (const n of from) {
       if (!L.glyphs[n.ref]) continue;
       const cp = codePointOf(L, n.ref);
@@ -297,18 +326,19 @@ export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure): Des
            ——那不是它的部件，會多畫一個假框 ✗。 */
       if (cp && !(comps && comps.length)) continue;
       /* 往下一層用**實際的 KAGE 引用** ✓（見 `rawRefBoxes()` 的說明 ✓） */
-      next.push(...emit(rawRefBoxes(L, n.ref), n.tf, depth));
+      next.push(...emit(rawRefBoxes(L, n.ref), n.tf, depth, n.path));
     }
     step(next, depth + 1);
   };
-  step(emit(componentBoxesShallow(L, gi, inkOf), TF_ID, 0), 1);
+  step(emit(componentBoxesShallow(L, gi, inkOf), TF_ID, 0, []), 1);
   return out;
 }
 
 /** 遞迴收集 ✓（`deep=false` 時與舊版**完全一樣** ✓：一次呼叫、不投影 ✓）。 */
 function collectBoxes(L: Library, gi: number, inkOf: InkMeasure | undefined, deep: boolean,
-                      parentBox: Box | null, acc: { box: Box | null; out: CompBox[] }[], depth: number): void {
-  const boxes = componentBoxesShallow(L, gi, inkOf);
+                      parentBox: Box | null, acc: { box: Box | null; out: CompBox[] }[], depth: number,
+                      inkOfRef?: (parentIdx: number, strokeIx: number) => Box | null): void {
+  const boxes = componentBoxesShallow(L, gi, inkOf, inkOfRef);
   if (!deep || depth > 12) { acc.push({ box: parentBox, out: boxes }); return; }
   for (const e of boxes) {
     /* 這一格自己還是「合字」嗎 ✓——是的話就往下一層 ✓（框投影回**根**座標 ✓）。
@@ -318,12 +348,12 @@ function collectBoxes(L: Library, gi: number, inkOf: InkMeasure | undefined, dee
     const refIx = e.ref !== undefined ? e.ref : -1;
     const hasOwnStrokes = refIx >= 0 &&
       L.glyphs[refIx]!.strokes.some((s) => s.kind !== 99 && s.kind !== 0);
-    const innerBoxes = (refIx >= 0 && !hasOwnStrokes) ? componentBoxesShallow(L, refIx, inkOf) : [];
+    const innerBoxes = (refIx >= 0 && !hasOwnStrokes) ? componentBoxesShallow(L, refIx, inkOf, inkOfRef) : [];
     const canGoDeeper = innerBoxes.length > 1 && e.raw !== null;
     if (!canGoDeeper) { acc.push({ box: parentBox, out: [e] }); continue; }
     /* 子框在**這一格的座標** ✓（把 `e.raw` 當成這一格自己的畫布 ✓，再投影回上一層 ✓） */
     const childAcc: { box: Box | null; out: CompBox[] }[] = [];
-    collectBoxes(L, refIx, inkOf, true, e.raw, childAcc, depth + 1);
+    collectBoxes(L, refIx, inkOf, true, e.raw, childAcc, depth + 1, inkOfRef);
     for (const c of childAcc) {
       const abs = projectBox(c.box ?? e.raw, e.raw);       /* 這一格的框 → 上一層座標 ✓ */
       const finalBox = parentBox ? projectBox(abs, parentBox) : abs;   /* → 再往上一層 ✓ */
@@ -333,7 +363,8 @@ function collectBoxes(L: Library, gi: number, inkOf: InkMeasure | undefined, dee
 }
 
 /** 舊版的**淺層**框（一次 `refSlotsOf` ✓）——`componentBoxes()` 的非遞迴路徑就是它 ✓。 */
-function componentBoxesShallow(L: Library, gi: number, inkOf?: InkMeasure): CompBox[] {
+function componentBoxesShallow(L: Library, gi: number, inkOf?: InkMeasure,
+                               inkOfRef?: (parentIdx: number, strokeIx: number) => Box | null): CompBox[] {
   /* ⚠ **先往下走到「真正在畫」的字形**：字庫裡很多碼位的字形只是一個**包裝**
      （一筆引用指向 `-j`／`-g` 那個真的畫出來的異體，例 `藵` #49163 → #49164）。
      不往下走的話 `refSlotsOf()` 只會回**一格**（＝包裝自己、框是滿格），
@@ -346,10 +377,15 @@ function componentBoxesShallow(L: Library, gi: number, inkOf?: InkMeasure): Comp
   for (let k = 0; k < slots.length; k++) {
     const s = slots[k]!;
     const raw = s.box as Box;
-    const inner = measure(s.ref);
+    /* ★ 墨跡緊框優先問**引擎** ✓（`inkOfRefInParent`：含框與 stretch 的真實落點 ✓）——
+       自己用仿射 `projectBox()` 推的只在「框的比例剛好等於墨跡比例」時才對 ✗
+       （例 邏 的 羅：仿射 [47,14,197,164] vs 引擎 [56,13,188,173] ✗）。 */
+    let tight: Box | null = null;
+    if (inkOfRef) { try { tight = inkOfRef(gi, s.strokeIx); } catch { tight = null; } }
+    if (!tight) { const inner = measure(s.ref); tight = inner ? projectBox(inner, raw) : null; }
     out.push({
-      ref: s.ref, refName: s.refName, slotIx: k,
-      raw, tight: inner ? projectBox(inner, raw) : null,
+      ref: s.ref, refName: s.refName, slotIx: k, strokeIx: s.strokeIx,
+      raw, tight,
       idsOnly: false, order: out.length,
     });
   }
@@ -416,10 +452,10 @@ function componentBoxesShallow(L: Library, gi: number, inkOf?: InkMeasure): Comp
       /* 沒有引用可以配（＝這個分量在畫法裡沒有對應的墨）→ 只有在「有原始筆劃」時才列出來
          （那幾筆可能就是它畫的）；沒有原始筆劃的字就不無中生有（見上面的 品／器）。 */
       if (!hasRaw) continue;
-      if (unmatchedTotal === 1 && rawBox && rawBox[2] - rawBox[0] >= 8 && rawBox[3] - rawBox[1] >= 8)   /* 細條框不給（`一` 這種全橫筆的墨框高度是 0——點座標沒有筆寬） */ { out.push({ ref: ci, refName: displayName(L, ci), slotIx: -1, raw: rawBox, tight: rawBox, idsOnly: false, order: out.length }); continue; }
-      if (rawGroups && umSeen < rawGroups.length) { const gb = rawGroups[umSeen++]!; out.push({ ref: ci, refName: displayName(L, ci), slotIx: -1, raw: gb, tight: gb, idsOnly: false, order: out.length }); continue; }
+      if (unmatchedTotal === 1 && rawBox && rawBox[2] - rawBox[0] >= 8 && rawBox[3] - rawBox[1] >= 8)   /* 細條框不給（`一` 這種全橫筆的墨框高度是 0——點座標沒有筆寬） */ { out.push({ ref: ci, refName: displayName(L, ci), slotIx: -1, strokeIx: -1, raw: rawBox, tight: rawBox, idsOnly: false, order: out.length }); continue; }
+      if (rawGroups && umSeen < rawGroups.length) { const gb = rawGroups[umSeen++]!; out.push({ ref: ci, refName: displayName(L, ci), slotIx: -1, strokeIx: -1, raw: gb, tight: gb, idsOnly: false, order: out.length }); continue; }
       out.push({
-        ref: ci, refName: displayName(L, ci), slotIx: -1,
+        ref: ci, refName: displayName(L, ci), slotIx: -1, strokeIx: -1,
         raw: null, tight: null, idsOnly: true, order: out.length,
       });
     }

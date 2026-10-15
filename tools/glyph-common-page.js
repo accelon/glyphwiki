@@ -101,8 +101,21 @@ function inkOfGlyph(i) {
   return b;
 }
 
-/** 這個字形所有部件的框（順序＝部件序列的順序，重複次數保留） */
-function boxesOfGlyph(i) { return componentBoxes(LIB, i, inkOfGlyph); }
+/** 引擎量的「某個引用在**父座標**的墨跡框」→ 陣列 ✓（引擎回的是 {x1,y1,x2,y2} 物件 ✓）。 */
+function inkOfRefBox(L, parentIdx, strokeIx) {
+  try {
+    var b = inkOfRefInParent(L, parentIdx, strokeIx);
+    return b ? [b.x1, b.y1, b.x2, b.y2] : null;
+  } catch (e) { return null; }
+}
+
+/** 這個字形所有部件的框（順序＝部件序列的順序，重複次數保留）
+ *  ★ 墨跡緊框**直接問引擎** ✓（含框與 `stretch` 的真實落點 ✓）——
+ *  自己用仿射推的只在比例剛好相符時才對 ✗（師父 2026-10-15：「最小能包住所有筆劃的框」✓）。 */
+function boxesOfGlyph(i) {
+  return componentBoxes(LIB, i, inkOfGlyph,
+    { inkOfRef: function (p, s) { return inkOfRefBox(LIB, p, s); } });
+}
 
 /** 筆劃粗細改了要把兩份快取清掉，否則畫面上還是舊粗細 */
 function clearDrawCache() { svgCache.clear(); inkCache.clear(); }

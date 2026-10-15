@@ -311,7 +311,6 @@ if (!existsSync(EDGE)) {
           out.push(tag + "P=" + document.querySelectorAll("#big svg path").length);
         }
         b.click(); modeInfo("Fdeep");
-        b.click(); modeInfo("Fraw");
         b.click(); modeInfo("Fnone");
         b.click(); modeInfo("Fback");
         var box = document.querySelector("#big .cbox");
@@ -324,7 +323,7 @@ if (!existsSync(EDGE)) {
     /* --- 「字框：孫」：所有子孫的框（直到獨體）--- */
     function () {
       var seqv = seqEl().value;
-      setSeq("想");
+      setSeq("邏");   /* 用**真的有三層**的字 ✓（想 的畫法是手畫 木 ＋ 引用 目、心，孫框不會變多 ✓） */
       var b = document.getElementById("boxMode");
       while (b.getAttribute("data-mode") !== "tight") b.click();   /* 先回到緊 ✓ */
       out.push("Dtight=" + document.querySelectorAll("#big .cbox").length);
@@ -348,7 +347,7 @@ if (!existsSync(EDGE)) {
       var dchip = document.querySelector("#seqChips .mini.comp[data-box]");
       if (dchip) dchip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       out.push("DchipHover=" + document.querySelectorAll("#big .cbox.hover").length);
-      b.click(); b.click(); b.click();                             /* 孫 → 原 → 無 → 緊 ✓ */
+      b.click(); b.click();                                        /* 孫 → 無 → 緊 ✓ */
       out.push("Dback=" + b.getAttribute("data-mode"));
       setSeq(seqv);
     },
@@ -882,7 +881,7 @@ if (!existsSync(EDGE)) {
                                  : bad("候選區一直顯示著");
     txt("hasSlider") === "true" ? ok("有筆劃粗細控制") : bad("沒有筆劃粗細控制");
     txt("boxMode") === "tight" && /字框/.test(txt("boxLabel"))
-      ? ok(`字框三態的初始狀態：${txt("boxLabel")}（data-mode=${txt("boxMode")}）`)
+      ? ok(`字框的初始狀態：${txt("boxLabel")}（data-mode=${txt("boxMode")}）`)
       : bad(`框模式初始 ${txt("boxMode")}／${txt("boxLabel")}`);
 
     // ---- 步驟 1：輸入「進」
@@ -937,14 +936,12 @@ if (!existsSync(EDGE)) {
     txt("FdeepM") === "deep" && num("FdeepN") > 0 && /字框：孫/.test(txt("FdeepT"))
       ? ok(`字框切到「孫」：${txt("FdeepT")}（${num("FdeepN")} 個框 ✓）`)
       : bad(`孫框那一段不對：${txt("FdeepM")}／${num("FdeepN")}／${txt("FdeepT")}`);
-    txt("FrawM") === "raw" && num("FrawN") > 0 && /字框：原/.test(txt("FrawT"))
-      ? ok(`字框切到「原始 KAGE 框」：${txt("FrawT")}（${num("FrawN")} 個框）`)
-      : bad(`原始框那一段不對：${txt("FrawM")}／${txt("FrawN")}／${txt("FrawT")}`);
+    /* 「原」（原始 KAGE 框）已與「緊」合併 ✓（師父 2026-10-15）——不再測那一態 ✓ */
     txt("FnoneM") === "none" && num("FnoneN") === 0 && num("FnoneP") > 0 && /字框：無/.test(txt("FnoneT"))
       ? ok(`字框切到「不顯示」：沒有框但字形還在（${num("FnoneP")} 條筆畫路徑）`)
       : bad(`「不顯示框」不對：${txt("FnoneM")}／框 ${num("FnoneN")}／路徑 ${num("FnoneP")}`);
     txt("FbackM") === "tight" && num("FbackN") > 0
-      ? ok(`再按一下回到「墨跡緊框」（四態循環 ✓）`) : bad(`四態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
+      ? ok(`再按一下回到「最小框」（三態循環 ✓）`) : bad(`三態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
     num("FactiveBox") > 0 && num("FactiveChip") > 0
       ? ok(`點框 → 框與部件序列互相亮起（框 ${num("FactiveBox")} 個、清單 ${num("FactiveChip")} 格）`)
       : bad(`框／清單連動沒生效：框 ${num("FactiveBox")}、清單 ${num("FactiveChip")}` +
@@ -955,7 +952,7 @@ if (!existsSync(EDGE)) {
       ? ok(`字框切到「孫」：${txt("Dlabel")}（data-mode=${txt("Dmode")}）`)
       : bad(`孫框模式不對：${txt("Dmode")}／${txt("Dlabel")}`);
     num("Dsub") > 0 && num("Dall") > num("Dtight") && num("DtightSub") === 0
-      ? ok(`「想」的孫框：直接 ${num("Ddirect")} 個（＝緊框 ${num("Dtight")} 個）＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
+      ? ok(`「邏」的孫框：直接 ${num("Ddirect")} 個（＝緊框 ${num("Dtight")} 個）＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
       : bad(`孫框數量不對：緊 ${num("Dtight")}（sub ${num("DtightSub")}）→ 孫 ${num("Dall")}（sub ${num("Dsub")}）`);
     num("DsubClickOn") === 1 && num("DsubChipOn") === 1
       ? ok("點孫框 → **框與部件清單互相亮起** ✓（師父 2026-10-15 的要求 ✓）")
@@ -970,7 +967,7 @@ if (!existsSync(EDGE)) {
     /U\+[0-9A-F]{4,6}/.test(txt("Dtips")) && /第 \d+ 號異形/.test(txt("Dtips")) && !/個部件/.test(txt("Dtips"))
       ? ok(`框的提示＝「碼位 ＋ 第幾號異形」：${txt("Dtips").slice(0, 70)}… ✓`)
       : bad(`框的提示不對（還是舊的「第 n 個部件」？）：${txt("Dtips")}`);
-    txt("Dback") === "tight" ? ok("孫 → 原 → 無 → 緊：四態循環回到緊 ✓") : bad(`四態循環壞了：${txt("Dback")}`);
+    txt("Dback") === "tight" ? ok("孫 → 無 → 緊：三態循環回到緊 ✓") : bad(`三態循環壞了：${txt("Dback")}`);
 
     // ---- 粗細
     txt("Gchanged") === "true" ? ok(`拉粗細 → 真的重畫（${txt("label")}）`) : bad("拉粗細沒有重畫");

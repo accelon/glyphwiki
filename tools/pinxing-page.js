@@ -149,7 +149,9 @@ var MAIN = null;
 
 function setMain(lib, idx) {
   if (lib === null || idx === undefined || idx === null || idx < 0) { MAIN = null; return; }
-  var boxes = lib === LIB ? boxesOfGlyph(idx) : componentBoxes(lib, idx, function (i) { return inkOfLib(lib, i); });
+  var boxes = lib === LIB ? boxesOfGlyph(idx)
+    : componentBoxes(lib, idx, function (i) { return inkOfLib(lib, i); },
+        { inkOfRef: function (p, s) { return inkOfRefBox(lib, p, s); } });
   MAIN = { lib: lib, idx: idx, boxes: boxes, ink: lib === LIB ? inkOfGlyph(idx) : inkOfLib(lib, idx), deep: null };
 }
 
@@ -158,8 +160,16 @@ function deepBoxesOfMain() {
   if (!MAIN) return [];
   if (!MAIN.deep) {
     try {
-      MAIN.deep = MAIN.lib === LIB ? descendantBoxes(LIB, MAIN.idx, inkOfGlyph)
-        : descendantBoxes(MAIN.lib, MAIN.idx, function (i) { return inkOfLib(MAIN.lib, i); });
+      var ink = MAIN.lib === LIB ? inkOfGlyph : function (i) { return inkOfLib(MAIN.lib, i); };
+      /* ★ 孫框的框＝**引擎量「這條引用鏈在根座標的墨跡框」** ✓
+         （＝能包住那個子孫所有筆劃的**最小框** ✓，含框與 stretch ✓）。 */
+      var pathInk = function (path) {
+        try {
+          var b = inkOfPathInRoot(MAIN.lib, MAIN.idx, path);
+          return b ? [b.x1, b.y1, b.x2, b.y2] : null;
+        } catch (e0) { return null; }
+      };
+      MAIN.deep = descendantBoxes(MAIN.lib, MAIN.idx, ink, pathInk);
     } catch (e) { MAIN.deep = []; }
   }
   return MAIN.deep;
@@ -1700,16 +1710,16 @@ function flashSeq(kind) {
   flashTimer = setTimeout(function () { el.classList.remove("flash-ok", "flash-warn"); }, 750);
 }
 
-/** 字框**四態**（墨跡緊框／**孫框**／原始 KAGE 框／不顯示）的按鈕標籤。 */
+/** 字框**三態**（最小框／**孫框**／不顯示）的按鈕標籤。
+ *  ★ 師父 2026-10-15：「緊」與「原」合併 ✓——只看**能包住那個部件所有筆劃的最小框** ✓
+ *  （引擎量的，見 `inkOfRefInParent`／`inkOfPathInRoot` ✓），不再提供原始 KAGE 框 ✗。 */
 function applyBoxMode() {
   var b = $("boxMode");
   if (!b) return;
   b.setAttribute("data-mode", BOXMODE);
-  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "deep" ? "字框：孫"
-    : BOXMODE === "raw" ? "字框：原" : "字框：無";
-  b.title = BOXMODE === "tight" ? "顯示墨跡緊框（預設）"
-    : BOXMODE === "deep" ? "顯示所有子孫的框（一直到獨體部件）"
-    : BOXMODE === "raw" ? "顯示原始 KAGE 引用框" : "不顯示字框";
+  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "deep" ? "字框：孫" : "字框：無";
+  b.title = BOXMODE === "tight" ? "顯示最小框（能包住那個部件所有筆劃的框）"
+    : BOXMODE === "deep" ? "顯示所有子孫的框（一直到獨體部件）" : "不顯示字框";
 }
 
 function stockHtml() {
@@ -1775,7 +1785,7 @@ function stockCompose(seq) {
 var BOXMODE = "tight";
 try {
   var savedBox = localStorage.getItem(LS_BOX);
-  if (savedBox === "raw" || savedBox === "none" || savedBox === "tight" || savedBox === "deep") BOXMODE = savedBox;
+  if (savedBox === "none" || savedBox === "tight" || savedBox === "deep") BOXMODE = savedBox;   /* 舊的 "raw" 一律回緊框 ✓ */
 } catch (e) { }
 var ACTIVE_BOX = -1;
 
@@ -2227,9 +2237,9 @@ function bind() {
     renderSeq(lastEval);
   });
 
-  /* 字框：**四態**（緊 → 孫 → 原 → 無） */
+  /* 字框：**三態**（緊 → 孫 → 無） */
   $("boxMode").addEventListener("click", function () {
-    BOXMODE = BOXMODE === "tight" ? "deep" : BOXMODE === "deep" ? "raw" : BOXMODE === "raw" ? "none" : "tight";
+    BOXMODE = BOXMODE === "tight" ? "deep" : BOXMODE === "deep" ? "none" : "tight";
     try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
     applyBoxMode();
     renderBig(false);

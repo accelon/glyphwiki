@@ -19,6 +19,8 @@ import {
 import type { Library, Glyph, Stroke } from "./lib-format.ts";
 import { inkBoxOfPolygons } from "./lib-measure.ts";
 import type { Box } from "./lib-measure.ts";
+/* ⚠ 只借一個函式宣告（會提升 ✓）——free-compose 沒有回頭 import 這支，不會成環 ✓ */
+import { drawingIdx } from "./free-compose.ts";
 
 /**
  * 專案根目錄（kage-engine 在 Node 端要從這裡載入）。
@@ -83,6 +85,56 @@ export function inkOfRefInParent(L: Lib, parentIdx: number, strokeIx: number): B
   }
   const polys = new Polygons();
   kage.makeGlyph(polys, keyOfIdx(L, parentIdx));
+  return inkBoxOfPolygons(polys).box;
+}
+
+/** 某個**子孫**（沿著引用鏈走）在**根座標**裡的墨跡框 ✓——
+ *  這就是「**最小能包住它所有筆劃的框**」✓（師父 2026-10-15 要的直觀框 ✓）。
+ *
+ *  `path` ＝ 每一層的 `strokeIx`（在**那一層字形**的 `strokes` 裡 ✓，與 `refSlotsOf()` 回的一致 ✓）。
+ *
+ *  作法：把這條鏈上的每一層都做成**只含那一個引用的合成字形** ✓，再整條交給引擎畫 ✓——
+ *  這樣「框、`stretch`、巢狀的縮放與置中」**全部照引擎的規矩**算 ✓，
+ *  不必自己猜映射 ✗（先前用「等比縮放後置中」的模型，遇到 `stretch` 就對不上 ✗，
+ *  症狀是孫框比它的父框還高／還寬 ✗，師父抓到 ✓）。 */
+export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | null {
+  ensureEngine();
+  if (!path.length) return null;
+  /* 沿著 path 走一遍，記下每一層的字形（要先穿過純指標的包裝字 ✓）與那一筆引用 ✓ */
+  const levels: { s: any }[] = [];
+  let g = drawingIdx(L, rootIdx);
+  for (let i = 0; i < path.length; i++) {
+    const gg = L.glyphs[g];
+    if (!gg) return null;
+    const s = gg.strokes[path[i]!] as any;
+    if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
+    levels.push({ s });
+    g = drawingIdx(L, s.ref as number);
+  }
+  const target = g;
+  const kage = new Kage();
+  const seen = new Set<number>();
+  const stack = [target];
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen.has(i)) continue;
+    seen.add(i);
+    const gg = L.glyphs[i];
+    if (!gg) continue;
+    kage.kBuhin.push(keyOfIdx(L, i), toKageData(gg, L));
+    for (const s of gg.strokes) if (s.kind === 99 && s.ref !== null) stack.push(s.ref);
+  }
+  let childName = keyOfIdx(L, target);
+  for (let i = levels.length - 1; i >= 0; i--) {
+    const name = "__deep" + i;
+    const s = levels[i]!.s;
+    const stretch = (s.stretch as number[]) ?? [0, 0, 0, 0];
+    kage.kBuhin.push(name,
+      "99:0:0:" + (s.box as number[]).join(":") + ":" + childName + ":" + stretch.join(":"));
+    childName = name;
+  }
+  const polys = new Polygons();
+  kage.makeGlyph(polys, childName);
   return inkBoxOfPolygons(polys).box;
 }
 
