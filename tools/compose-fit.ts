@@ -45,6 +45,34 @@ export function ensureEngine(): void {
 
 export type Lib = ReturnType<typeof decodeLibrary>;
 
+/** 從 `g` 往下穿過「只有一筆引用」的**包裝**，收集每一層包裝的引用框 ✓（由外而內 ✓）。
+ *
+ *  ⚠ `drawingIdx()` 會**跳過**這些包裝 ✗——它只回「真正在畫」的那個字形 ✓。
+ *    對「這個字形用到哪些部件」沒差 ✓，對**座標**差很多 ✗：包裝自己的框
+ *    （＝那一層的縮放與位移 ✓）沒有算進去 ✓，落點就**少一層** ✗。
+ *
+ *  ★ 症狀（師父 2026-10-16 抓到的「土變高」✓）：**拼形序**組出來的巢狀部件，
+ *    框與高亮比字形本身**還大還高** ✗。實測「機幾墨黒𨩛星炚日水」的 土：
+ *    字形畫在 y 131.3..190.3（高 59 ✓）、高亮畫在 y 25.7..181（高 155 ✗）。
+ *  ⚠ **真正在畫的碼位不受影響** ✓——那一層包裝的框就是滿格（200×200 ✓），跳過等於沒跳 ✓；
+ *    只有「拼形序把巢狀部件接上去」才會踩到 ✓（師父：「只有拼形序才會這樣」✓）。 */
+function wrapperBoxes(L: Lib, g: number): { box: number[]; stretch: number[] }[] {
+  const out: { box: number[]; stretch: number[] }[] = [];
+  let cur = g;
+  for (let d = 0; d < 8; d++) {
+    const gg = L.glyphs[cur];
+    if (!gg) break;
+    const refs = gg.strokes.filter((s: any) => s.kind === 99 && s.ref !== null);
+    /* 「只有一筆引用」＝純包裝 ✓（自己也有筆劃的是葉 ✓，不可以穿過去 ✗——與 drawingIdx 同一條規矩 ✓） */
+    if (!(gg.strokes.length === 1 && refs.length === 1)) break;
+    const s: any = refs[0]!;
+    if (!s.box) break;
+    out.push({ box: s.box as number[], stretch: (s.stretch as number[]) ?? [0, 0, 0, 0] });
+    cur = s.ref as number;
+  }
+  return out;
+}
+
 /** 量出某字形（含子樹）在自身座標系的墨跡範圍 */
 export function inkIn(L: Lib, rootIdx: number): Box {
   ensureEngine();
@@ -102,6 +130,8 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
   if (!path.length) return null;
   /* 沿著 path 走一遍，記下每一層的字形（要先穿過純指標的包裝字 ✓）與那一筆引用 ✓ */
   const levels: { s: any }[] = [];
+  /* ★ 根自己若是包裝，它的框也要算 ✓（見 wrapperBoxes ✓） */
+  for (const w of wrapperBoxes(L, rootIdx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
   let g = drawingIdx(L, rootIdx);
   for (let i = 0; i < path.length; i++) {
     const gg = L.glyphs[g];
@@ -109,7 +139,11 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
     const s = gg.strokes[path[i]!] as any;
     if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
     levels.push({ s });
-    g = drawingIdx(L, s.ref as number);
+    /* ★ 下去的路上穿過的**包裝**，每一層的框都要補進來 ✓——
+       不然落點少一層 ✓（拼形序的巢狀部件就是這樣被放大／變高的 ✓，見 wrapperBoxes ✓）。 */
+    const nx = s.ref as number;
+    for (const w of wrapperBoxes(L, nx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
+    g = drawingIdx(L, nx);
   }
   const target = g;
   const kage = new Kage();
@@ -147,6 +181,8 @@ export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): string 
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
+  /* ★ 根自己若是包裝，它的框也要算 ✓（見 wrapperBoxes ✓） */
+  for (const w of wrapperBoxes(L, rootIdx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
   let g = drawingIdx(L, rootIdx);
   for (let i = 0; i < path.length; i++) {
     const gg = L.glyphs[g];
@@ -154,7 +190,11 @@ export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): string 
     const s = gg.strokes[path[i]!] as any;
     if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
     levels.push({ s });
-    g = drawingIdx(L, s.ref as number);
+    /* ★ 下去的路上穿過的**包裝**，每一層的框都要補進來 ✓——
+       不然落點少一層 ✓（拼形序的巢狀部件就是這樣被放大／變高的 ✓，見 wrapperBoxes ✓）。 */
+    const nx = s.ref as number;
+    for (const w of wrapperBoxes(L, nx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
+    g = drawingIdx(L, nx);
   }
   const node = L.glyphs[g];
   if (!node) return null;
@@ -180,6 +220,8 @@ export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | n
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
+  /* ★ 根自己若是包裝，它的框也要算 ✓（見 wrapperBoxes ✓） */
+  for (const w of wrapperBoxes(L, rootIdx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
   let g = drawingIdx(L, rootIdx);
   for (let i = 0; i < path.length; i++) {
     const gg = L.glyphs[g];
@@ -187,7 +229,11 @@ export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | n
     const s = gg.strokes[path[i]!] as any;
     if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
     levels.push({ s });
-    g = drawingIdx(L, s.ref as number);
+    /* ★ 下去的路上穿過的**包裝**，每一層的框都要補進來 ✓——
+       不然落點少一層 ✓（拼形序的巢狀部件就是這樣被放大／變高的 ✓，見 wrapperBoxes ✓）。 */
+    const nx = s.ref as number;
+    for (const w of wrapperBoxes(L, nx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
+    g = drawingIdx(L, nx);
   }
   const node = L.glyphs[g];
   if (!node) return null;
@@ -217,6 +263,8 @@ export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[]): string
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
+  /* ★ 根自己若是包裝，它的框也要算 ✓（見 wrapperBoxes ✓） */
+  for (const w of wrapperBoxes(L, rootIdx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
   let g = drawingIdx(L, rootIdx);
   for (let i = 0; i < path.length; i++) {
     const gg = L.glyphs[g];
@@ -224,7 +272,11 @@ export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[]): string
     const s = gg.strokes[path[i]!] as any;
     if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
     levels.push({ s });
-    g = drawingIdx(L, s.ref as number);
+    /* ★ 下去的路上穿過的**包裝**，每一層的框都要補進來 ✓——
+       不然落點少一層 ✓（拼形序的巢狀部件就是這樣被放大／變高的 ✓，見 wrapperBoxes ✓）。 */
+    const nx = s.ref as number;
+    for (const w of wrapperBoxes(L, nx)) levels.push({ s: { box: w.box, stretch: w.stretch } });
+    g = drawingIdx(L, nx);
   }
   const target = g;
   const kage = new Kage();

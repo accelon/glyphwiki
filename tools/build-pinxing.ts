@@ -72,6 +72,8 @@ const html = `<!DOCTYPE html>
   .toast.on { display:block; }
   .toast.ok { color:#7fd18a; border-color:color-mix(in srgb, #7fd18a 40%, var(--line)); }
   .toast.warn { color:#ffc46b; border-color:color-mix(in srgb, #ffc46b 40%, var(--line)); }
+  /* ★ 師父 2026-10-16：不合法的表意描述序要**紅色警示** ✓（缺部件／多部件／開頭不是描述符 ✓）。 */
+  .toast.err { color:#ff8a8a; border-color:color-mix(in srgb, #ff8a8a 45%, var(--line)); }
 
   .sec { background:var(--card); border:1px solid var(--line); border-radius:10px;
          padding:6px 8px; margin-bottom:6px; }
@@ -104,12 +106,15 @@ const html = `<!DOCTYPE html>
   #saveSeq.del .icoSave { display:none; }
   #saveSeq.del .icoDel { display:block; }
   #saveSeq.del { color:#ff8a8a; }
-  /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的拼形序時才出現 ✓） */
-  #wand { font-size:20px; line-height:1; }
+  /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的拼形序時才出現 ✓）；
+     ★ 師父 2026-10-16：**🧩「拆成 IDS」搬到同一列** ✓（「與魔杖放在同一位置，用 🧩 這個圖示」✓）。
+     ⚠ 兩顆都是 emoji 圖示鈕，字級要一起調 ✓（「.iconbtn」的 22px 那條是給 svg 的 ✗）。 */
+  #wand, #toIds { font-size:20px; line-height:1; }
   /* ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
      「.iconbtn」有「display:flex」，所以「[hidden]」單獨是**沒有用的** ✗。
-     這條是「JS 還沒跑之前」的保險 ✓；跑起來之後由「showEl()」的行內 display 接手 ✓。 */
+     這兩條是「JS 還沒跑之前」的保險 ✓；跑起來之後由「showEl()」的行內 display 接手 ✓。 */
   #wand[hidden] { display:none; }
+  #toIds[hidden] { display:none; }
   .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; }
   button { padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card);
            color:var(--fg); font:inherit; cursor:pointer; white-space:nowrap; }
@@ -125,6 +130,18 @@ const html = `<!DOCTYPE html>
   .chk input { width:14px; height:14px; margin:0; accent-color:var(--acc); cursor:pointer; }
   .wrow input[type=range] { flex:1; min-width:70px; }
   #boxMode { font-size:12px; padding:4px 8px; }
+  /* ★ 師父 2026-10-16：「暫時隱藏 筆劃粗細 bar，改為 IDC」✓——
+     整組（筆劃標籤／滑桿／百分比）包在一起，用「hidden」一起收 ✓。
+     ⚠ 作者樣式的 display 會蓋掉 [hidden] ✗（第 112 輪的教訓 ✓）→ 這裡補一條 ✓。 */
+  .wswrap { display:flex; gap:6px; align-items:center; flex:1 1 140px; }
+  .wswrap[hidden] { display:none; }
+  /* IDC 描述符的按鈕排 ✓（12 顆，窄螢幕自動換行 ✓）。
+     ⚠ 作者樣式的 display 會蓋掉 [hidden] ✗（第 112 輪的教訓 ✓）→ 自己補一條 ✓。 */
+  .idcrow { display:flex; flex-wrap:wrap; gap:3px; align-items:center; flex:1 1 auto; }
+  .idcrow[hidden] { display:none; }
+  /* ★ 按鈕上放的是**描述符本身**（⿰⿱…✓）；人話（左右／上下…）在 tooltip ✓。
+     字級比內文大一級 ✓（描述符的字形本來就小 ✓）。 */
+  .idc { padding:1px 6px; font-size:15px; line-height:1.35; border-radius:5px; }
 
   /* ---- 2. 大字（左）＋ 部件清單（右，豎排、靠右） ----
      flex-wrap ＋ **部件清單的最小寬度**是防重疊的保險：萬一視窗真的不夠寬，
@@ -186,7 +203,21 @@ const html = `<!DOCTYPE html>
         （師父 2026-10-16 回報的「部件清單與大字重疊」就是這個 ✓）。 */
   .stage > svg { position:absolute; left:0; top:0; width:100%; height:100%; display:block; }
   .stage .ph { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-               text-align:center; color:var(--mut); font-size:12px; line-height:1.7; }
+               text-align:center; color:var(--mut); font-size:12px; line-height:1.7; padding:8px; }
+  /* ★ 2026-10-16：不合法的表意描述序——**紅字留在畫面上** ✓（浮層 3 秒就消失 ✗，
+     消失之後客人只看到一片空白、不知道要改哪裡 ✓）。 */
+  .stage .ph.err { color:#ff8a8a; }
+  /* ★ 師父 2026-10-16：「hover 到某一塊時，**其他的應該被覆蓋不可見**」✓——
+     滑過去只留那一塊（「.hllayer」的染色 ✓）與框（位置地圖 ✓），主字形那一層收起來 ✓。
+     ⚠ 主字形那一層帶「class="gly"」✓（見 pinxing-page.js 的「mainSvg()」✓）。
+     ⚠ 用「opacity:0」（**不是**「display:none」✗）：不重排、上面的圖層也不會跳位 ✓。 */
+  .stage.iso > svg.gly { opacity:0; }
+  /* ★ 師父 2026-10-16：「**如果大字是 Unicode 有收的字**，在**右下方**顯示 Unicode 區位及
+     codepoint（字體大小可以和「中間部件」一樣大）」✓——「中間部件」是 12px ✓，這裡就 12px ✓。
+     ⚠ 組出來的形（fork 出來、沒有碼位 ✗）不顯示 ✓（見 pinxing-page.js 的「renderCpInfo()」✓）。
+     「pointer-events:none」✓：它疊在大字上，不可以吃掉「點框選部件」的滑鼠事件 ✗。 */
+  .stage .cpinfo { position:absolute; right:4px; bottom:1px; font-size:12px; line-height:1.3;
+                   color:var(--mut); letter-spacing:.5px; pointer-events:none; }
   /* 部件框疊在大字上（座標系一樣，都是 viewBox 0 0 200 200，不必換算）。
      框是**獨立一層 svg.boxlayer**，絕對定位疊上去——
      g 單獨塞進 HTML 會被解析器丟掉（踩過：大字的框整個不見）。 */
@@ -348,6 +379,14 @@ const html = `<!DOCTYPE html>
       <span class="seqlbl brand" id="seqlbl">剎那拼形</span>
       <input id="seq" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
              placeholder="輸入任何字或拼形式">
+      <!-- ★ 師父 2026-10-16：「**「拆成 IDS」功能與「魔杖」放在同一位置。用「🧩」這個圖示。
+           hover 時說明「將字拆分成IDS」**」✓——所以從下面那一列搬到**輸入區這一列** ✓、
+           跟在魔杖旁邊 ✓（🧩 在 🪄 **左邊** ✓：魔杖與「存起來」的相對位置是師父指定的 ✓，
+           不要插進它們中間 ✗）。
+           ⚠ 只應在**輸入單個非獨體字**時出現 ✓（見 pinxing-page.js 的「showEl($("toIds"), …)」✓）；
+              「hidden」單獨沒有用 ✗（「.iconbtn」的「display:flex」是作者樣式、會蓋掉它 ✓），
+              所以 CSS 補一條「#toIds[hidden]」✓、開頁前也不會閃出來 ✓。 -->
+      <button id="toIds" class="iconbtn" title="將字拆分成IDS" hidden>🧩</button>
       <!-- ★ 師父第 136 輪：**魔術棒 🪄** —— 有建議的拼形序時才出現 ✓；
            點一下＝把下一個建議填進輸入區 ✓（再點換下一個 ✓）。
            DOM 位置在「存起來」（#saveSeq）的前一個 ✓（師父指定的位置 ✓）。 -->
@@ -377,10 +416,27 @@ const html = `<!DOCTYPE html>
       <!-- ★ 師父第 124 輪：客人不會打 IDC ✓，所以要有按鈕把字**拆成表意描述序** ✓
            （★ 師父 2026-10-16：「構字式（IDS）」改稱「**表意描述序**」✓——標籤、tooltip、
               人話轉寫、浮層提示一起改 ✓；按鈕上的「IDS」是國際通用簡寫，留著 ✓） -->
-      <button id="toIds" title="把這個字拆成表意描述序——看看它的等比分配與拼形序差多少 ✓">拆成 IDS</button>
-      <span class="note">筆劃</span>
-      <input id="wscale" type="range" min="40" max="220" step="5" value="100">
-      <span class="note" id="wscaleV">100%</span>
+      <!-- ★ 師父 2026-10-16：「拆成 IDS」**搬到輸入區那一列、跟在魔杖旁邊、改用 🧩** ✓
+           （見上面 #toIds 的註解 ✓）；這裡不再留一顆文字按鈕 ✗。 -->
+      <!-- ★ 師父 2026-10-16：「**IDC 按鈕占用筆劃大小那一位置**（**其他模式顯示筆劃大小**）」✓——
+           兩者**同一個位置**、不並排 ✓（那一列在手機上本來就擠 ✓）：
+           表意描述序＝給描述符 ✓（客人打不出 ⿰ ✗）；其他模式＝給筆劃粗細 ✓。
+           ⚠ 由 JS 依模式切換 ✓（見 pinxing-page.js 的「applyToolRow()」✓）——
+             所以這裡**兩邊都不要寫死「hidden」**✗（寫死會讓另一個模式也看不到 ✓）；
+             只是開頁那一下要「hidden」當保險 ✓（JS 一跑就會校正 ✓）。
+           ⚠ 包一層「#wscaleWrap」是為了**整組一起收** ✓（標籤／滑桿／百分比三顆 ✓）。 -->
+      <span class="wswrap" id="wscaleWrap">
+        <span class="note">筆劃</span>
+        <input id="wscale" type="range" min="40" max="220" step="5" value="100">
+        <span class="note" id="wscaleV">100%</span>
+      </span>
+      <!-- ★ 師父 2026-10-16：**IDC 描述符**（U+2FF0–2FFF ✓）——客人打不出來 ✗，
+           所以給一排按鈕，點一下插進輸入區的游標位置 ✓（見 pinxing-page.js ✓）。
+           ★ 師父 2026-10-16（同日追加）：「**IDC 按鈕改用 IDC 字符來顯示，「左右」「上下」
+             改為 hover hint**」✓——按鈕上就是 ⿰⿱⿲……✓，人話（左右／上下…✓）搬到 tooltip ✓。
+           ⚠ 按鈕由 JS 依「IDS_ARITY」的順序生出來 ✓（不要在這裡手寫 12 顆 ✗：順序會對不上 ✓）。 -->
+      <span class="note" id="idcLabel" hidden>IDC</span>
+      <span class="idcrow" id="idcRow" hidden></span>
     </div>
     <!-- ★ 師父 2026-10-16：**檢字運算子的用法** ✓——只有「部件檢字」時滑過上面的標籤才彈出來 ✓。
          掛在「header.top」底下 ✓（貼在「.seqrow」下面會蓋住「筆劃」滑桿 ✗）。

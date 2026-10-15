@@ -120,8 +120,56 @@ export function parseIds(s: string): IdsNode | null {
   return root && i === cs.length ? root : null;
 }
 
-/** 葉（有序 ✓）——回傳碼位 ✓ */
-export function idsLeaves(n: IdsNode): number[] {
+/** ★ 師父 2026-10-16：**不合法的表意描述序要當場說清楚錯在哪** ✓——
+ *  「如果輸入的是不合法的 IDS，紅色警示，錯誤包括：**缺少部件、多出部件、最開頭必為描述符**」✓。
+ *
+ *  ⚠ 這三種錯 `parseIds()` 一律只回 `null` ✗（它是嚴格的 prefix parser ✓）——
+ *    要給客人看的是**哪一種錯** ✓，所以在這裡多走一遍、把原因分辨出來 ✓
+ *    （**不要**在頁面另寫一份判斷 ✗：兩份就會各說各話 ✓）。
+ *  ⚠ 訊息一律用**人話的名字** ✓（`IDF_OPNAME` ✓）：很多系統字型沒有 U+2FF0–2FFF ✗，
+ *    客人在畫面上只看到一堆 ▯ ✓，寫「左右」他才看得懂 ✓。
+ *  回傳 `null` ＝**寫法沒問題** ✓（字形在不在庫裡是另一回事 ✓，那由 `idsGlyph()` 回報 ✓）。 */
+export interface IdsIssue { kind: "start" | "missing" | "extra" | "empty"; msg: string; }
+
+export function idsIssue(s: string): IdsIssue | null {
+  const cs = Array.from(String(s).replace(/\s+/g, ""));
+  if (!cs.length) return { kind: "empty", msg: "還沒有輸入內容" };
+  if (IDF_ARITY[cs[0]!] === undefined) {
+    return {
+      kind: "start",
+      msg: "最開頭必須是描述符（⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻）——每一層都要從描述符開始 ✓" +
+        "（點下方的描述符按鈕也可以 ✓）",
+    };
+  }
+  let i = 0, missing = false;
+  const walk = (): boolean => {
+    if (i >= cs.length) { missing = true; return false; }
+    const c = cs[i]!;
+    if (IDF_ARITY[c] !== undefined) {
+      i++;
+      for (let k = 0; k < IDF_ARITY[c]!; k++) if (!walk()) return false;
+      return true;
+    }
+    i++;
+    return true;
+  };
+  walk();
+  if (missing) {
+    return {
+      kind: "missing",
+      msg: "缺少部件：描述符後面要接著它的分量（有描述符還沒接滿 ✓）",
+    };
+  }
+  if (i < cs.length) {
+    return {
+      kind: "extra",
+      msg: "多出部件：「" + cs.slice(i).join("") + "」是多出來的——上一個描述符的分量已經接滿了 ✓",
+    };
+  }
+  return null;
+}
+
+/** 葉（有序 ✓）——回傳碼位 ✓ */export function idsLeaves(n: IdsNode): number[] {
   if ("cp" in n) return [n.cp];
   const out: number[] = [];
   for (const k of n.kids) for (const v of idsLeaves(k)) out.push(v);

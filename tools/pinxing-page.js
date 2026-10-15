@@ -341,13 +341,28 @@ function partSvgOfMain(order) {
 }
 
 /** 把 `.hllayer` 的內容換成「第 box 個部件、染成框色」的筆劃 ✓。
- *  ⚠ **只換這一層**、不重畫整個字形 ✓——滑過框時才不會閃爍 ✓（換掉游標底下的元素會抖 ✗）。 */
-function paintActiveStrokes(box) {
+ *  ⚠ **只換這一層**、不重畫整個字形 ✓——滑過框時才不會閃爍 ✓（換掉游標底下的元素會抖 ✗）。
+ *  ★ 師父 2026-10-16：「**hover 到某一塊時，其他的應該被覆蓋不可見**」✓——
+ *    滑過的時候把**主字形那一層收起來** ✓（`iso` ✓），只留那一塊（染色 ✓）＋框（位置 ✓）。
+ *    ⚠ `iso` 只在**滑過**時給 ✓（`iso` 參數 ✓）：`renderBig()` 之類的重畫會用選中的那一格
+ *      再呼叫一次 `paintActiveStrokes()` ✓，那時**不可以**把主字形收起來 ✗
+ *      （客人只是打了字、沒有在滑 ✓，畫面不該突然只剩一塊 ✓）。 */
+function paintActiveStrokes(box, iso) {
   var host = $("big");
   var lay = host ? host.querySelector(".hllayer") : null;
   if (!lay) return;
   if (box === undefined || box === null) box = ACTIVE_BOX;
-  lay.innerHTML = box >= 0 ? partSvgOfMain(box) : "";
+  var svg = box >= 0 ? partSvgOfMain(box) : "";
+  lay.innerHTML = svg;
+  /* ⚠ 畫得出那一塊才收主字形 ✓：畫不出來還收起來＝整片空白 ✗（客人只會覺得壞了 ✓）。 */
+  setIso(!!svg && !!iso);
+}
+
+/** 「只看那一塊」的開關 ✓——只是**看不見**（`opacity:0` ✓）：那一層還在 DOM 裡 ✓，
+ *  滑出去立刻回來 ✓、也不會推動任何版面 ✓（`display:none` 會重排 ✗）。 */
+function setIso(on) {
+  var host = $("big");
+  if (host) host.classList[on ? "add" : "remove"]("iso");
 }
 
 function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
@@ -2042,7 +2057,7 @@ function toast(text, kind) {
     return;
   }
   el.textContent = text;
-  el.className = "toast on " + (kind === "warn" ? "warn" : "ok");
+  el.className = "toast on " + (kind === "warn" ? "warn" : kind === "err" ? "err" : "ok");
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(function () { el.className = "toast"; }, 3000);
 }
@@ -2188,21 +2203,33 @@ function render() {
   var lbl = $("seqlbl");
   var empty = st.mode === "empty";
   var composing = st.mode === "partial" || (st.mode === "ok" && !st.single);
-  lbl.textContent = empty ? "剎那拼形" : composing ? "拼形序" : "部件檢字";
-  lbl.className = "seqlbl" + (empty ? " brand" : composing ? " good" : " find");
+  setLabel(empty ? "剎那拼形" : composing ? "拼形序" : "部件檢字",
+           empty ? "brand" : composing ? "good" : "find",
+           empty ? "empty" : composing ? "good" : "find");
   /* 標籤從「拼形序」變成「部件檢字」（或反向）時，讓輸入區閃一下顏色（不移動版面） */
   var mode3 = empty ? "empty" : composing ? "good" : "find";
   if (mode3 !== lastLabelMode) {
     if (lastLabelMode !== null && mode3 !== "empty") flashSeq(mode3 === "find" ? "warn" : "ok");
     lastLabelMode = mode3;
   }
+  /* ★ 師父 2026-10-16：「IDC 按鈕**占用筆劃大小那一位置**（**其他模式顯示筆劃大小**）」✓ */
+  applyToolRow(st.mode);
   /* ★ 師父 2026-10-16：標籤的 hover 說明**每一種狀態都有** ✓——
-     狀態換了（檢字 ↔ 拼形序 ↔ 空白）內容就要跟著換 ✓；浮層開著的時候**當場更新** ✓，
-     不是收起來 ✗（收起來的話，滑鼠還在標籤上卻東西不見了 ✓，看起來像壞掉 ✓）。 */
+     狀態換了（檢字 ↔ 表意描述序 ↔ 拼形序 ↔ 空白）內容就要跟著換 ✓；
+     浮層開著的時候**當場更新** ✓，不是收起來 ✗（滑鼠還在標籤上、東西卻不見了，看起來像壞掉 ✓）。 */
   if ($("lblHelp") && $("lblHelp").classList.contains("on")) $("lblHelp").innerHTML = labelHelpHtml();
   /* 不是合法拼形式就不給存檔（使用者的要求） */
   $("saveSeq").hidden = !composing;
   updateSaveBtn();   /* ★ 存檔 ↔ 垃圾桶（自存的序列 ✓） */
+  /* ★ 師父 2026-10-16：「**「拆成 IDS」這個功能只應在輸入單個非獨體字時出現**」✓——
+     條件兩個都要：**輸入剛好一個字** ✓ 而且**拆得開**（`idsOfChar()` 回得出表意描述序 ✓；
+     獨體字／引用不足它回空字串 ✗）。不合就整顆收起來 ✓（點不到＝不會走進死路 ✓）。 */
+  var seqChars0 = Array.from(String($("seq").value || "").replace(/\s+/g, ""));
+  var canSplit = false;
+  if (seqChars0.length === 1) {
+    try { canSplit = !!idsOfChar(seqChars0[0]); } catch (eSp) { canSplit = false; }
+  }
+  showEl($("toIds"), canSplit);
 
   if (empty) {
     setMain(null);
@@ -2222,7 +2249,27 @@ function render() {
        版面：**大字＝IDS 等比分配的醜形** ✓；**並排那格＝拼形序的美形** ✓（點一下就換過去 ✓）。 */
     lbl.textContent = "表意描述序";
     lbl.className = "seqlbl find";
+    lbl.setAttribute("data-mode", "ids");
     $("saveSeq").hidden = true;
+    /* ★ 師父 2026-10-16：「**如果輸入的是不合法的 IDS，紅色警示，錯誤包括：
+       缺少部件、多出部件、最開頭必為描述符**」✓（`idsIssue()` ✓，共用模塊那一支 ✓）。
+       ⚠ 紅字要**留在畫面上**（大字裡 ✓），不是只有 3 秒的浮層 ✗——
+         浮層消失之後客人只看到一片空白，不知道要改哪裡 ✓。 */
+    var issue = null;
+    try { issue = idsIssue(st.ids); } catch (eIss) { issue = null; }
+    if (issue) {
+      setMain(null);
+      clearSuggestRow();
+      setWand(null, false);
+      renderSeq(st);                 /* 先把部件清單清掉 ✓ */
+      SEARCH = null; renderSearch(); uploadLinks(null);
+      /* ⚠ 紅字與浮層要**最後**才寫 ✗——`renderSeq()` 會重畫大字、也會清浮層 ✓，
+         先寫就會被蓋掉 ✓（實測：畫面上只剩一般的空狀態、浮層也是空的 ✓）。 */
+      $("big").innerHTML = '<div class="ph err">' + issue.msg + "</div>";
+      note.textContent = "表意描述序：" + st.ids + "　→ " + issue.msg;
+      toast(issue.msg, "err");
+      return;
+    }
     var rec = st.recommend;
     var naive = null;
     try { naive = idsComposeNaive(st.ids); } catch (e0) { naive = null; }
@@ -2446,10 +2493,37 @@ function renderBig(scroll) {
     if (BOXMODE === "none") html = html.replace('svg class="boxlayer"', 'svg class="boxlayer ghost"');
     $("big").innerHTML = html;
     paintActiveStrokes(ACTIVE_BOX);
+    renderCpInfo();          /* ★ 右下角「Unicode 區位 ＋ 碼位」✓（沒有碼位就不畫 ✓） */
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
   }
   void scroll;
+}
+
+/** ★ 師父 2026-10-16：「**如果大字是 Unicode 有收的字**，在**右下方**顯示 Unicode 區位及
+ *  codepoint（字體大小可以和「中間部件」一樣大）」✓。
+ *  ⚠ 「Unicode 有收」＝**大字真的有碼位** ✓：拼形序組出來的字是 fork 出來的副本、
+ *    `codePointOf()` 回 undefined ✗ → **不顯示** ✓（誠實：它就不是 Unicode 的字 ✓）。
+ *  ⚠ 每次重畫都重做一次 ✓（`#big` 的 innerHTML 會被換掉 ✓，掛在裡面才活得下來 ✓）。 */
+function renderCpInfo() {
+  var host = $("big");
+  if (!host) return;
+  var old = host.querySelector(".cpinfo");
+  if (old && old.parentNode) old.parentNode.removeChild(old);
+  if (!MAIN) return;
+  /* ⚠ **拼形組出來的字不算** ✗：`free-compose` 是**當場改寫基字那一格** ✓（`MAIN.lib !== LIB` ✓），
+     所以 `MAIN.idx` 還指著基字（實測：這個合文的 `codePointOf()` 回 U+6A5F＝「機」✗）——
+     直接印就會把**機**的碼位貼在一個不是機的字旁邊 ✓。`isComposed()` 就是這件事的判準 ✓。 */
+  if (isComposed()) return;
+  var cp = null;
+  try { cp = codePointOf(MAIN.lib, MAIN.idx); } catch (e) { cp = null; }
+  if (!cp) return;
+  var bi = blockIndexOf(cp);
+  var el = document.createElement("span");
+  el.className = "cpinfo";
+  /* 區位用面板那一套短標籤 ✓（BMP／A／B…／相容／相容補 ✓）——與區塊面板、配色同一份來源 ✓。 */
+  el.textContent = (bi >= 0 ? BLOCKS[bi].id + "　" : "") + hex(cp);
+  host.appendChild(el);
 }
 
 /** 「和字集瀏覽頁連動」的那一條連結（`glyph-browser.html?comp=…`）。
@@ -2498,6 +2572,18 @@ function goToBrowser() {
   return true;
 }
 
+/** ★ 師父 2026-10-16：「IDC 按鈕**占用筆劃大小那一位置**（**其他模式顯示筆劃大小**）」✓——
+ *  **同一個位置**、看模式給哪一個 ✓（不並排 ✗：那一列在手機上本來就擠 ✓）：
+ *    `ids`（表意描述序）＝給描述符 ✓（客人打不出 U+2FF0–2FFF ✗）；
+ *    其他（空白／拼形序／部件檢字）＝給筆劃粗細 ✓。
+ *  ⚠ 兩邊都用 `showEl()` ✓（`display:none` 的坑見第 112 輪 ✓）。 */
+function applyToolRow(mode) {
+  var ids = mode === "ids";
+  showEl($("idcRow"), ids);
+  showEl($("idcLabel"), ids);
+  showEl($("wscaleWrap"), !ids);
+}
+
 /* ============================ 事件 ============================ */
 /** ★ 師父 2026-10-16：標籤的 hover 說明，**兩種內容** ✓：
  *  ① **部件檢字**（`#seqlbl.find` ✓）→ 檢字運算子的用法 ✓
@@ -2510,15 +2596,33 @@ function goToBrowser() {
  *       搬上來之後如果只有「拼形序」那一個狀態才看得到，第一次打開的人就找不到它了 ✗。
  *  ⚠ 浮層是 `absolute` ✓：出現／消失都**不推動版面** ✓（跟 .toast 同一個原則 ✓）。 */
 var PATENT_LINE = "拼形序依據 中国发明专利 201610984608.1 号";
-
-function labelHelpEnabled() {
-  var l = $("seqlbl");
-  return !!(l && /(^| )find( |$)/.test(l.className));
-}
+/** 表意描述序那一種狀態的 hover 說明 ✓。
+ *  ★ 師父 2026-10-16：「**輸入區是「表意描述序」時，不應顯示「部件檢字」的說明。
+ *    顯示「使用下方的 描述符」**」✓——運算子那幾條（`木+`／`口口`／`4木日` ✓）是
+ *    **部件檢字**在用的 ✗，表意描述序走的是**另一條路**（描述符 ＋ 分量 ✓）；
+ *    拿檢字的說明給他看＝教錯方法 ✓，所以這一頁的浮層要**分狀態**給內容 ✓。 */
+var IDS_HELP = "使用下方的描述符";
 function labelHelpHtml() {
-  return labelHelpEnabled()
-    ? searchHelpHtml(["U+908F", "用那個碼位的字去檢字"])
-    : PATENT_LINE;
+  var m = labelMode();
+  if (m === "find") return searchHelpHtml(["U+908F", "用那個碼位的字去檢字"]);
+  if (m === "ids") return IDS_HELP;
+  return PATENT_LINE;
+}
+/** 標籤（文字／顏色／**狀態**）只有這一個出口 ✓。
+ *  ★ 師父 2026-10-16：hover 說明要**依狀態給不同內容** ✓——所以狀態記在 `data-mode` ✓
+ *  （`empty`＝還沒輸入 ✓、`good`＝拼形序 ✓、`find`＝部件檢字 ✓、`ids`＝表意描述序 ✓）。
+ *  ⚠ 標籤開著浮層時（滑鼠還在上面 ✓）內容要**當場換** ✓，不是等下次 hover ✗。 */
+function setLabel(text, cls, mode) {
+  var l = $("seqlbl");
+  if (!l) return;
+  l.textContent = text;
+  l.className = "seqlbl " + cls;
+  l.setAttribute("data-mode", mode);
+  if ($("lblHelp") && $("lblHelp").classList.contains("on")) $("lblHelp").innerHTML = labelHelpHtml();
+}
+function labelMode() {
+  var l = $("seqlbl");
+  return l ? (l.getAttribute("data-mode") || "") : "";
 }
 function hideLabelHelp() {
   if ($("lblHelp")) $("lblHelp").classList.remove("on");
@@ -2527,11 +2631,23 @@ function hideLabelHelp() {
 function showLabelHelp() {
   var el = $("lblHelp");
   if (!el) return;
-  /* ⚠ 每次都重算內容 ✓：狀態換了（檢字 ↔ 拼形序）內容就不一樣 ✓，
+  /* ⚠ 每次都重算內容 ✓：狀態換了（檢字 ↔ 表意描述序 ↔ 拼形序）內容就不一樣 ✓，
      只在第一次填會留下上一個狀態的說明 ✗。 */
   el.innerHTML = labelHelpHtml();
   el.hidden = false;
   el.classList.add("on");
+}
+/** 把一段文字插到輸入區的**游標位置** ✓（沒有游標＝接在最後 ✓）——IDC 描述符按鈕用 ✓。
+ *  ⚠ 客人**打不出** U+2FF0–2FFF ✗，所以一定要有「點一下插進去」的路 ✓。 */
+function insertIntoSeq(text) {
+  var el = $("seq");
+  if (!el) return;
+  var v = String(el.value || "");
+  var at = (el.selectionStart === undefined || el.selectionStart === null) ? v.length : el.selectionStart;
+  var to = (el.selectionEnd === undefined || el.selectionEnd === null) ? at : el.selectionEnd;
+  el.value = v.slice(0, at) + text + v.slice(to);
+  var caret = at + text.length;
+  try { el.setSelectionRange(caret, caret); } catch (e) { /* 不支援就算了 ✓ */ }
 }
 
 function bind() {
@@ -2550,6 +2666,28 @@ function bind() {
     if (!e.target || !e.target.closest) return;
     if (e.target.closest("#lblHelp") || e.target.closest("#seqlbl")) return;
     hideLabelHelp();
+  });
+  /* ★ 師父 2026-10-16：「**IDC 按鈕改用 IDC 字符來顯示，「左右」「上下」改為 hover hint**」✓——
+     按鈕上＝**描述符本身**（⿰⿱⿲…✓）；人話（左右／上下／全包…✓）與碼位放進 tooltip ✓。
+     ⚠ 很多字型沒有 U+2FF0–2FFF 的字形 ✗ → 按鈕會顯示 ▯ ✓（師父指定要字符 ✓，
+       tooltip 裡有名字所以還認得出來 ✓）。 */
+  if ($("idcRow") && !$("idcRow").children.length) {
+    var idcOps = Object.keys(IDS_ARITY), idcHtml = "";
+    for (var io = 0; io < idcOps.length; io++) {
+      var opv = idcOps[io];
+      idcHtml += '<button class="idc" data-idc="' + opv + '" title="' +
+        (IDF_OPNAME[opv] || opv) + "（" + opv + "　U+" +
+        opv.codePointAt(0).toString(16).toUpperCase() + "）——點一下插進輸入區 ✓\">" +
+        opv + "</button>";
+    }
+    $("idcRow").innerHTML = idcHtml;
+  }
+  if ($("idcRow")) $("idcRow").addEventListener("click", function (e) {
+    var b = e.target && e.target.closest ? e.target.closest(".idc") : null;
+    if (!b) return;
+    insertIntoSeq(b.getAttribute("data-idc"));
+    render();                 /* 插進去就當場判讀 ✓（合法＝畫出來 ✓、不合法＝紅字 ✓） */
+    $("seq").focus();
   });
   /* 輸入就重畫（排到 microtask，見 scheduleRender） */
   $("seq").addEventListener("input", scheduleRender);
@@ -2586,7 +2724,7 @@ function bind() {
   if ($("toIds")) $("toIds").addEventListener("click", function () {
     var v = String($("seq").value || "").replace(/\s+/g, "");
     var first = Array.from(v)[0];
-    if (!first) { toast("先在上面打一個字（例：學）✓ 再按「拆成 IDS」✓", "warn"); return; }
+    if (!first) { toast("先在上面打一個字（例：學）✓ 再按輸入區右邊的 🧩 ✓", "warn"); return; }
     var ids = idsOfChar(first);
     if (!ids) {
       toast("「" + first + "」在畫法裡沒有可直接拆的部件 ✓（獨體字或引用不足 ✓）——" +
@@ -2628,9 +2766,12 @@ function bind() {
     var bx = (r && r.hasAttribute("data-box")) ? Number(r.getAttribute("data-box")) : -1;
     hoverChip(bx);
     /* ★ 滑過框 → 那一格的筆劃也**染成框色** ✓（師父 2026-10-15；滑出＝回到選中的那格 ✓） */
-    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
+    /* ★ 師父 2026-10-16：滑過某一塊時**其他的要被覆蓋不可見** ✓（`iso` ✓） */
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX, bx >= 0);
   });
-  $("big").addEventListener("mouseleave", function () { hoverChip(-1); paintActiveStrokes(ACTIVE_BOX); });
+  $("big").addEventListener("mouseleave", function () {
+    hoverChip(-1); paintActiveStrokes(ACTIVE_BOX); setIso(false);
+  });
 
   /* ★ 反向也要通 ✓：滑過部件清單的格子 → 大字上對應的框也亮起來 ✓ */
   $("seqChips").addEventListener("mouseover", function (e) {
@@ -2638,9 +2779,11 @@ function bind() {
     var bx = (m && m.hasAttribute("data-box")) ? Number(m.getAttribute("data-box")) : -1;
     hoverFrame(bx);
     /* ★ 反向也要染色 ✓（滑過清單的格子 → 大字那一格的筆劃變框色 ✓） */
-    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX, bx >= 0);
   });
-  $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); paintActiveStrokes(ACTIVE_BOX); });
+  $("seqChips").addEventListener("mouseleave", function () {
+    hoverFrame(-1); paintActiveStrokes(ACTIVE_BOX); setIso(false);
+  });
 
   /* 庫存：點一列 ＝ 把整個序列帶進輸入區 ✓（刪除改用輸入區右邊的垃圾桶鈕 ✓） */
   $("stock").addEventListener("click", function (e) {

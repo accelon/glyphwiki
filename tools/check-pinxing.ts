@@ -1155,6 +1155,152 @@ if (!existsSync(EDGE)) {
         encodeURIComponent((document.getElementById("candNote").textContent || "").slice(0, 18)));
       setSeq("");
     },
+    /* --- ★ 2026-10-16（師父）：表意描述序的 hover、IDC 描述符、紅字警示、🧩 --- */
+    function () {
+      var lbl = document.getElementById("seqlbl");
+      var help = document.getElementById("lblHelp");
+      function hover() { lbl.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false })); }
+      /* ① 表意描述序的 hover 說明＝**「使用下方的描述符」** ✓——不可以是檢字運算子那幾條 ✗ */
+      setSeq("⿰木木");
+      hover();
+      out.push("IidsLbl=" + encodeURIComponent(lbl.textContent));
+      out.push("IidsMode=" + (lbl.getAttribute("data-mode") || ""));
+      out.push("IidsHelp=" + encodeURIComponent(help ? help.textContent.trim() : ""));
+      out.push("IidsHelpIsOps=" + (help && /木\+|口口|4木日/.test(help.textContent) ? 1 : 0));
+      out.push("IidsPaths=" + document.querySelectorAll("#big svg path").length);
+      /* ② IDC 描述符排：12 顆、標籤是**人話**、點一下插進游標位置 ✓ */
+      var idcs = document.querySelectorAll("#idcRow .idc");
+      out.push("IidcN=" + idcs.length);
+      out.push("IidcTexts=" + encodeURIComponent(Array.prototype.map.call(idcs, function (b) {
+        return b.textContent; }).join(",")));
+      out.push("IidcTitle=" + encodeURIComponent(idcs[0] ? idcs[0].getAttribute("title") : ""));
+      setSeq("⿰木");
+      var s2 = seqEl();
+      try { s2.setSelectionRange(2, 2); } catch (eSel) { }
+      if (idcs[3]) idcs[3].click();                       /* 第 4 顆＝⿳ ✓ */
+      out.push("IidcClick=" + encodeURIComponent(s2.value));
+      /* ③ 不合法 → **紅色警示** ✓（缺少部件／多出部件／最開頭必為描述符 ✓） */
+      function badI(tag, v) {
+        setSeq(v);
+        var ph = document.querySelector("#big .ph");
+        var msg = document.getElementById("msg");
+        /* ⚠ className 也要編碼 ✗：「toast on err」有空白 ✓，不編碼的話探針的
+           「空白分隔欄位」會在空白處被切斷 ✓（實測就是這樣誤判成「沒有 err」✗）。 */
+        out.push("I" + tag + "=" + encodeURIComponent(ph ? ph.textContent.slice(0, 30) : "") + "|" +
+          encodeURIComponent(ph ? ph.className : "") + "|" + encodeURIComponent(msg ? msg.className : "") + "|" +
+          encodeURIComponent(msg ? msg.textContent.slice(0, 22) : ""));
+      }
+      badI("miss", "⿰木");
+      badI("extra", "⿰木水土");
+      badI("start", "木⿰水土");
+      /* ④ 筆劃粗細 ↔ IDC：**同一個位置**，看模式給哪一個 ✓
+         （師父：「IDC 按鈕占用筆劃大小那一位置（其他模式顯示筆劃大小）」✓） */
+      out.push("Iwscale=" + (document.getElementById("wscaleWrap").hidden ? 1 : 0) + "/" +
+        getComputedStyle(document.getElementById("wscaleWrap")).display +
+        "/" + (document.getElementById("idcRow").hidden ? 1 : 0) + "/" +
+        getComputedStyle(document.getElementById("idcRow")).display);
+      setSeq("邏羅寶");
+      out.push("Iwscale2=" + (document.getElementById("wscaleWrap").hidden ? 1 : 0) + "/" +
+        getComputedStyle(document.getElementById("wscaleWrap")).display + "/" +
+        (document.getElementById("idcRow").hidden ? 1 : 0) + "/" +
+        getComputedStyle(document.getElementById("idcRow")).display);
+      /* ④b 大字右下角的「Unicode 區位 ＋ 碼位」✓（有碼位才顯示 ✓） */
+      function cpInfo(tag) {
+        var el = document.querySelector("#big .cpinfo");
+        out.push(tag + "=" + (el ? encodeURIComponent(el.textContent) : "none") + "/" +
+          (el ? getComputedStyle(el).fontSize + "/" + getComputedStyle(el).position : "-"));
+      }
+      setSeq("邏");        /* 真的字（U+908F）→ 要顯示 ✓ */
+      cpInfo("IcpReal");
+      setSeq("⿰木木");     /* 表意描述序組出來的形（沒有碼位）→ 不顯示 ✓ */
+      cpInfo("IcpMade");
+      setSeq("邏羅寶");     /* **拼形序**組出來的形 → 也不顯示 ✓（它改寫基字，碼位會是基字的 ✗） */
+      cpInfo("IcpSeq");
+      setSeq("學");        /* 也是真的字（U+5B78）✓ */
+      cpInfo("IcpOne");
+      /* ⑤ 🧩＝「拆成 IDS」：與魔杖同一列、在它左邊、tooltip、出現時機 ✓ */
+      var tz = document.getElementById("toIds");
+      out.push("Ipuzzle=" + (tz ? encodeURIComponent(tz.textContent) + "|" + encodeURIComponent(tz.title) +
+        "|" + (tz.parentElement ? tz.parentElement.className : "?") +
+        "|" + (tz.nextElementSibling ? tz.nextElementSibling.id : "?") : "MISSING"));
+      setSeq("邏羅寶");
+      out.push("IpuzzleSeq=" + (tz.hidden ? 0 : 1));
+      setSeq("一");                       /* 單個**獨體**字 → 不出現 ✓ */
+      out.push("IpuzzleAtom=" + (tz.hidden ? 0 : 1));
+      setSeq("學");                       /* 單個**非獨體**字 → 出現 ✓ */
+      out.push("IpuzzleOne=" + (tz.hidden ? 0 : 1));
+      setSeq("");
+      out.push("IpuzzleEmpty=" + (tz.hidden ? 0 : 1));
+    },
+    /* --- ★ 2026-10-16（師父）：滑過某一塊 → **其他的要被覆蓋不可見** ✓ --- */
+    function () {
+      setSeq("邏羅寶");
+      var big = document.getElementById("big");
+      var gly = big.querySelector("svg.gly");
+      function iso(tag) {
+        out.push(tag + "=" + (big.classList.contains("iso") ? 1 : 0) + "/" +
+          (gly ? getComputedStyle(gly).opacity : "?") + "/" +
+          document.querySelectorAll("#big .hllayer path").length + "/" +
+          document.querySelectorAll("#big .cbox").length);
+      }
+      iso("IsoBefore");
+      var chip = document.querySelector("#seqChips .mini.comp[data-box]");
+      out.push("IsoChip=" + (chip ? chip.getAttribute("data-box") : "MISSING"));
+      if (chip) chip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      iso("IsoOn");
+      var wrap = document.getElementById("seqChips");
+      wrap.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+      iso("IsoOff");
+      setSeq("");
+    },
+    /* --- ★ 2026-10-16（師父）：**像素層**驗收：高亮的墨必須落在字形本身的墨裡面 ✓ ---
+       為什麼要這一條（踩過 ✓）：框（componentBoxes）、inkOfPathInRoot()、
+       svgOfPathInRoot() **三個來源互相一致**，卻**都與字形本身不一致** ✗——
+       師父抓到「機幾墨黒𨩛星炚日水」滑過 土 時「土變高」✓（實測高亮 49.7% 的墨
+       在字形裡根本沒有 ✓）。原因：drawingIdx() 會穿過「只有一筆引用」的**包裝**，
+       卻把那一層的**框**（縮放＋位移）丟掉 ✓ → 落點少一層 ✓。
+       ⚠ 這一步是**非同步**的（要等 SVG 光柵化 ✓），結果放進 window.__PIX__，
+         由最後一步讀 ✓（中間隔了十幾個步驟、時間夠 ✓）。 */
+    function () {
+      function raster(svg) {
+        return new Promise(function (res) {
+          var img = new Image();
+          img.onload = function () {
+            var c = document.createElement("canvas");
+            c.width = 200; c.height = 200;
+            var g2 = c.getContext("2d");
+            /* ⚠ 一定要自己指定大小 ✓：viewBox 而沒有 width/height 的 SVG，
+               瀏覽器給的預設尺寸是 300×150 ✗，drawImage 會再拉一次 ✓（兩張都歪就白比了 ✓） */
+            g2.drawImage(img, 0, 0, 200, 200);
+            res(g2.getImageData(0, 0, 200, 200).data);
+          };
+          img.onerror = function () { res(null); };
+          img.src = "data:image/svg+xml;charset=utf-8," +
+            encodeURIComponent(svg.replace(/<svg\b/, '<svg width="200" height="200"'));
+        });
+      }
+      setSeq("機幾墨黒𨩛星炚日水");
+      var L = MAIN ? MAIN.lib : null;
+      if (!L) { window.__PIX__ = "nomain"; return; }
+      var boxes = currentBoxes() || [], tu = null;
+      for (var i = 0; i < boxes.length; i++) {
+        if (boxes[i].ref !== undefined && codePointOf(L, boxes[i].ref) === 0x571f) { tu = boxes[i]; break; }
+      }
+      if (!tu || !tu.path || !tu.path.length) { window.__PIX__ = "nobox"; return; }
+      var hl = null, whole = null;
+      try { hl = svgOfPathInRoot(L, MAIN.idx, tu.path); whole = mainSvg(); } catch (e) { }
+      if (!hl || !whole) { window.__PIX__ = "nosvg"; return; }
+      Promise.all([raster(whole), raster(hl)]).then(function (r) {
+        if (!r[0] || !r[1]) { window.__PIX__ = "noraster"; return; }
+        var A = r[0], H = r[1], n = 0, miss = 0;
+        for (var k = 0; k < 200 * 200; k++) {
+          if ((H[k * 4 + 3] || 0) < 128) continue;      /* 高亮沒墨的像素不算 ✓ */
+          n++;
+          if ((A[k * 4 + 3] || 0) < 128) miss++;
+        }
+        window.__PIX__ = n + "/" + miss + "/" + (n ? Math.round(1000 * miss / n) / 10 : -1);
+      });
+    },
     /* --- ★ 2026-10-16：**留下一組已知的狀態**，下一次開頁要自己還原 ✓
        （師父：「輸入區的文字存進 localStorage，客人不必每次重新輸入 ✓；
         字框顯示、中間部件、筆劃粗細也都存 ✓」）。
@@ -1175,7 +1321,11 @@ if (!existsSync(EDGE)) {
       out.push("ZlsMid=" + encodeURIComponent(localStorage.getItem("pinxing.showmid") || ""));
       out.push("ZwLbl=" + encodeURIComponent(document.getElementById("wscaleV").textContent));
     },
-    function () { out.push("done=1"); report(out.join(" ")); }
+    function () {
+      out.push("Ipix=" + (window.__PIX__ || "pending"));   /* ★ 像素驗收的結果（非同步 ✓） */
+      out.push("done=1");
+      report(out.join(" "));
+    }
   ];
   var qi = 0;
   function start() {
@@ -1211,7 +1361,7 @@ if (!existsSync(EDGE)) {
 
   const proc = Bun.spawnSync([
     EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + profile,
-    "--virtual-time-budget=150000",
+    "--virtual-time-budget=240000",   /* ⚠ 步驟多了會撞到預算 ✓（撞到＝探針沒有回報、整段驗收空轉 ✓） */
     "--window-size=460,1500", "--screenshot=" + shotPath,
     "--dump-dom", "file:///" + diagPath.replace(/\\/g, "/"),
   ], { stdout: "pipe", stderr: "ignore" });
@@ -1436,6 +1586,107 @@ if (!existsSync(EDGE)) {
     num("Hcp") > 0 && /邏/.test(txt("Hcp"))
       ? ok(`說明裡的 U+908F 真的有用（${txt("Hcp")}）——以前這一頁沒接 ✓`)
       : bad(`U+908F 沒有作用：${txt("Hcp")}`);
+
+    /* ★ 2026-10-16（師父）：「**輸入區是「表意描述序」時，不應顯示「部件檢字」的說明。
+       顯示「使用下方的 描述符」**」✓ */
+    txt("IidsLbl") === "表意描述序" && txt("IidsMode") === "ids"
+      ? ok(`表意描述序的狀態：標籤「${txt("IidsLbl")}」✓（data-mode=${txt("IidsMode")}）`)
+      : bad(`表意描述序的標籤／狀態不對：${txt("IidsLbl")}／${txt("IidsMode")}`);
+    txt("IidsHelp") === "使用下方的描述符" && num("IidsHelpIsOps") === 0 && num("IidsPaths") > 0
+      ? ok(`它的 hover 說明＝「${txt("IidsHelp")}」✓（**不是**檢字運算子那幾條 ✓），而且字照樣畫得出來（${num("IidsPaths")} 條路徑 ✓）`)
+      : bad(`表意描述序的 hover 說明不對：「${txt("IidsHelp")}」／含運算子=${num("IidsHelpIsOps")}`);
+    /* ★ 2026-10-16（師父）：「**IDC 按鈕改用 IDC 字符來顯示，「左右」「上下」改為 hover hint**」
+       ＋「**占用筆劃大小那一位置（其他模式顯示筆劃大小）**」✓ */
+    txt("IidcN") === "12" || num("IidcN") === 12
+      ? ok(`IDC 描述符 12 顆（${txt("IidcTexts")}）✓`)
+      : bad(`IDC 排的顆數不對：${num("IidcN")}`);
+    txt("IidcTexts") === "⿰,⿱,⿲,⿳,⿴,⿵,⿶,⿷,⿸,⿹,⿺,⿻" && /左右/.test(txt("IidcTitle")) &&
+      /U\+2FF0/.test(txt("IidcTitle"))
+      ? ok(`按鈕上是**描述符本身**（${txt("IidcTexts")} ✓）、人話與碼位在 hover hint（${txt("IidcTitle")} ✓）`)
+      : bad(`IDC 按鈕的字不對：${txt("IidcTexts")}／tooltip ${txt("IidcTitle")}`);
+    {
+      const idsRow = txt("Iwscale").split("/");
+      const otherRow = txt("Iwscale2").split("/");
+      idsRow[0] === "1" && idsRow[1] === "none" && idsRow[2] === "0" && idsRow[3] !== "none" &&
+      otherRow[0] === "0" && otherRow[1] !== "none" && otherRow[2] === "1" && otherRow[3] === "none"
+        ? ok("IDC 與筆劃粗細**同一個位置**：表意描述序給 IDC（筆劃收起 ✓）、其他模式給筆劃（IDC 收起 ✓）")
+        : bad(`那一列的切換不對：ids ${txt("Iwscale")}／其他 ${txt("Iwscale2")}`);
+    }
+    /* ★ 2026-10-16（師父）：「**如果大字是 Unicode 有收的字**，在**右下方**顯示 Unicode 區位及
+       codepoint（字體大小可以和「中間部件」一樣大）」✓ */
+    {
+      const real = txt("IcpReal").split("/");
+      const made = txt("IcpMade");
+      const seqMade = txt("IcpSeq");
+      const one = txt("IcpOne").split("/");
+      /^BMP／?\s?U\+908F$|^BMP\s*U\+908F$/.test(real[0]!.replace(/\u3000/g, " ")) &&
+      real[1] === "12px" && real[2] === "absolute" && /^none/.test(made) && /^none/.test(seqMade) &&
+      /U\+5B78/.test(one[0]!)
+        ? ok(`大字右下角顯示「${real[0]}」✓（12px ＝「中間部件」的字級 ✓、absolute 疊在角上 ✓）；` +
+             `組出來的形（無碼位）不顯示 ✓`)
+        : bad(`右下角的碼位標籤不對：真字 ${JSON.stringify(real)}（原字串 ${JSON.stringify(txt("IcpReal"))}）／` +
+              `組出來的 ${JSON.stringify(made)}／拼形 ${JSON.stringify(seqMade)}／單字 ${JSON.stringify(one)}`);
+    }
+    txt("IidcClick") === "⿰木⿳"
+      ? ok(`點描述符＝插進游標位置（${txt("IidcClick")} ✓）`)
+      : bad(`描述符沒插進去：${txt("IidcClick")}`);
+    /* ★ 2026-10-16（師父）：「**如果輸入的是不合法的 IDS，紅色警示**，錯誤包括：
+       缺少部件、多出部件、最開頭必為描述符」✓（紅字**留在畫面上** ✓，不是只有 3 秒的浮層 ✓） */
+    {
+      const rows = [["miss", "缺少部件"], ["extra", "多出部件"], ["start", "最開頭必須是描述符"]] as const;
+      const wrong: string[] = [];
+      for (const [tag, want] of rows) {
+        const f = txt("I" + tag).split("|");
+        const msg = f[0] ?? "";
+        const cls = f[1] ?? "";
+        const tcls = f[2] ?? "";
+        if (!msg.includes(want) || !cls.includes("err") || !tcls.includes("err")) {
+          wrong.push(`${tag}=${msg}／${cls}／${tcls}`);
+        }
+      }
+      wrong.length === 0
+        ? ok("三種寫法問題都給**紅色警示**（缺少部件／多出部件／最開頭必為描述符 ✓：" +
+             "大字裡的紅字會留著 ✓＋浮層也是 err 色 ✓）")
+        : bad(`紅色警示不對：${wrong.join("、")}`);
+    }
+    /* ★ 2026-10-16（師父）：「**「拆成 IDS」功能與「魔杖」放在同一位置。用「🧩」這個圖示。
+       hover 時說明「將字拆分成IDS」**」✓＋「**只應在輸入單個非獨體字時出現**」✓ */
+    {
+      const f = txt("Ipuzzle").split("|");
+      const [txt0, title, parent, next] = f;
+      txt0 === "🧩" && title === "將字拆分成IDS" && /seqrow/.test(parent || "") && next === "wand"
+        ? ok(`🧩 與魔杖同一列、在它左邊（parent=${parent}、next=${next}）✓、title＝「${title}」✓`)
+        : bad(`🧩 的位置或 tooltip 不對：${txt("Ipuzzle")}`);
+      num("IpuzzleSeq") === 0 && num("IpuzzleAtom") === 0 && num("IpuzzleOne") === 1 && num("IpuzzleEmpty") === 0
+        ? ok("🧩 只在**單個非獨體字**時出現（「學」出現 ✓；「邏羅寶」「一」「空白」都收起 ✓）")
+        : bad(`🧩 的出現時機不對：多字=${num("IpuzzleSeq")}、獨體=${num("IpuzzleAtom")}、` +
+              `單字=${num("IpuzzleOne")}、空白=${num("IpuzzleEmpty")}`);
+    }
+    /* ★ 2026-10-16（師父）：**拼形序的巢狀部件，高亮必須落在字形真正畫的地方** ✓——
+       這一條用**像素**驗（框與量測三個來源會一起錯 ✗，抓不出來 ✓）。
+       修好前：26,040 點裡有 12,876 點（49.7%）落在字形外面 ✗；修好後 3.2%（抗鋸齒邊緣 ✓）。 */
+    {
+      const f = txt("Ipix").split("/");
+      const n = Number(f[0]), miss = Number(f[1]), pct = Number(f[2]);
+      n > 1000 && miss >= 0 && pct >= 0 && pct <= 8
+        ? ok(`高亮（土）畫了 ${n} 點，只有 ${pct}% 落在字形外面 ✓（那幾點就是抗鋸齒邊緣 ✓）`)
+        : bad(`高亮的墨跑到字形外面了：${txt("Ipix")}（修好前是 49.7% ✗）`);
+    }
+    /* ★ 2026-10-16（師父）：「hover 到某一塊時，**其他的應該被覆蓋不可見**」✓——
+       滑過去：主字形那一層 `opacity:0` ✓、那一塊的筆劃畫出來 ✓、框留著（位置地圖 ✓）；
+       滑出去：主字形回來 ✓、那一塊的染色清掉 ✓。 */
+    {
+      const on = txt("IsoOn").split("/");
+      const off = txt("IsoOff").split("/");
+      const before = txt("IsoBefore").split("/");
+      on[0] === "1" && on[1] === "0" && Number(on[2]) > 0
+        ? ok(`滑過部件（第 ${txt("IsoChip")} 格）：主字形 opacity=${on[1]}（被蓋住 ✓）、` +
+             `那一塊畫了 ${on[2]} 條筆劃 ✓、框還留著 ${on[3]} 個 ✓`)
+        : bad(`滑過部件沒有蓋掉其他部分：${txt("IsoOn")}`);
+      off[0] === "0" && off[1] === "1" && off[2] === "0" && before[0] === "0" && before[1] === "1"
+        ? ok("滑出去就還原（主字形回來 ✓、染色清掉 ✓、平常不會蓋 ✓）")
+        : bad(`滑出後沒有還原：前 ${txt("IsoBefore")}／後 ${txt("IsoOff")}`);
+    }
 
     /* ★ 2026-10-16（師父）：「每個字 Unicode 的左下角…**Extension 區都加一個醒目小英文字母**
        （有顏色粗體，Arial），標明其所屬區」✓，**基本區 2 萬字除外** ✓
