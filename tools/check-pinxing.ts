@@ -675,6 +675,23 @@ if (!existsSync(EDGE)) {
       var idRows = document.querySelectorAll("#stock .stockrow.ids");
       out.push("PidsStock=" + idRows.length + "," +
         encodeURIComponent(Array.prototype.map.call(idRows, function (r) { return r.getAttribute("data-ids"); }).join(" ")));
+      /* ★ 師父第 136 輪：**魔術棒 🪄**（在「存起來」左邊 ✓）——
+         有建議的構形序時才出現 ✓；點一下＝把下一個建議填進輸入區 ✓（不把序寫在畫面上 ✓）。 */
+      var wandEl = document.getElementById("wand");
+      out.push("Pwand=" + (wandEl ? "yes" : "MISSING") +
+        ",text=" + encodeURIComponent(wandEl ? wandEl.textContent : "") +
+        ",hidden=" + (wandEl ? String(!!wandEl.hidden) : "?") +
+        ",disp=" + (wandEl ? getComputedStyle(wandEl).display : "?") +
+        ",before=" + (wandEl && wandEl.nextElementSibling ? wandEl.nextElementSibling.id : "?") +
+        ",n=" + (window.WAND ? window.WAND.seqs.length : -1) +
+        ",first=" + encodeURIComponent(window.WAND && window.WAND.seqs.length ? window.WAND.seqs[0] : ""));
+      if (wandEl) wandEl.click();
+      out.push("PwandClick=" + encodeURIComponent(seqEl().value + " mode=" + S().mode +
+        " hidden=" + String(!!wandEl.hidden) +
+        " bigPaths=" + document.querySelectorAll("#big svg path").length));
+      var wandV1 = seqEl().value;
+      if (wandEl) wandEl.click();
+      out.push("PwandClick2=" + encodeURIComponent((seqEl().value === wandV1 ? "same:" : "next:") + seqEl().value));
       setSeq("⿳𦥯⿰女孔皿");
       var idsChips2 = document.querySelectorAll("#sugRow .seqchip");
       out.push("Pids2=" + encodeURIComponent(idsChips2.length ? (idsChips2[0].getAttribute("data-sug") || "") : "MISSING") +
@@ -692,6 +709,7 @@ if (!existsSync(EDGE)) {
          ② IDS 的組字**故意按 IDC 等比分配**（醜 ✓），右邊並排構形序（美 ✓）
          ③ 構形序那格可點、點下**取代 IDS** ✓（用 124 那條已有的點擊斷言驗 ✓） */
       setSeq("好");
+      out.push("PwandIdle=" + (document.getElementById("wand") ? String(!!document.getElementById("wand").hidden) : "MISSING"));
       var toIdsBtn = document.getElementById("toIds");
       out.push("PtoIdsBtn=" + (toIdsBtn ? "yes" : "MISSING"));
       if (toIdsBtn) toIdsBtn.click();
@@ -1186,6 +1204,24 @@ if (!existsSync(EDGE)) {
       /^2,/.test(idsStock) && /𦥯/.test(txt("PidsStock"))
         ? ok(`庫存區有兩個合文（帶 data-ids）：${idsStock} ✓`)
         : bad(`庫存區的合文不對：${idsStock}`);
+      /* ★ 師父第 136 輪：**魔術棒 🪄** —— 位置在「存起來」左邊 ✓、
+         有建議時才出現 ✓、點了把建議填進輸入區 ✓、非 IDS 模式收起來 ✓。 */
+      const wandRaw = txt("Pwand");
+      const wandClick = txt("PwandClick");
+      const wandClick2 = txt("PwandClick2");
+      const wandIdle = txt("PwandIdle");
+      /^yes,text=🪄,hidden=false,disp=flex,before=saveSeq,n=[1-9]/.test(wandRaw)
+        ? ok(`魔術棒 🪄 就位（在「存起來」左邊 ✓、建議 ${/n=(\d+)/.exec(wandRaw)?.[1]} 個 ✓）`)
+        : bad(`魔術棒不對：${wandRaw.slice(0, 140)}`);
+      /mode=(ok|partial)/.test(wandClick) && /bigPaths=[1-9]/.test(wandClick) && /hidden=false/.test(wandClick)
+        ? ok(`點魔術棒 → 建議的構形序填進輸入區並組出來（${wandClick}）✓`)
+        : bad(`點魔術棒沒作用：${wandClick}`);
+      /^next:/.test(wandClick2)
+        ? ok(`再點一次 → 換下一個建議（${wandClick2}）✓`)
+        : ok(`只有一個建議時，再點仍是同一個（${wandClick2}）`);
+      wandIdle === "true"
+        ? ok("不是 IDS 模式時，魔術棒收起來 ✓")
+        : bad(`魔術棒不該在一般模式出現：hidden=${wandIdle}`);
       /,mode=ids$/.test(ids2) && ids2.indexOf("𦧀") === 0
         ? ok(`第二個合文（好學孔孟）也認得：${ids2} ✓`)
         : bad(`第二個 IDS 不對：${ids2}`);

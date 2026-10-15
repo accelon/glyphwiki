@@ -14,6 +14,11 @@
 var LIB_B64 = "__LIB_B64__";
 var LIB = null;
 
+/** ★ 師父第 136 輪：**魔術棒 🪄** 要記住「這一次的建議構形序」✓。
+ *  ⚠ 宣告一定要在檔頭 ✗：var 的提升只有宣告、沒有賦值 ✗——
+ *    寫在檔案中段時，render() 先跑就會踩到 TDZ ✗（第 136 輪實測：整頁起不來 ✗）。 */
+var WAND = { seqs: [], ix: -1 };
+
 /** 這個字庫裡「只由一個引用構成」的字：把它看成那個被引用的字。
     `uXXXX` 這種純指標名字就是這一類，沒有這一步輸入「邏」會找不到字形。 */
 function glyphIndexOf(ch) {
@@ -972,11 +977,44 @@ function composeSuggestion(input, newCp) {
 function clearSuggestRow() {
   var wrap = $("sugWrap"), stage = $("sugStage"), cap = $("sugCap");
   var stockBox = $("stockSuggest"), row = $("sugRow");
-  if (wrap) wrap.hidden = true;
+  showEl(wrap, false);
   if (stage) stage.innerHTML = "";
   if (cap) cap.textContent = "";
-  if (stockBox) stockBox.hidden = true;
+  if (stockBox) showEl(stockBox, false);
   if (row) row.innerHTML = "";
+}
+
+/** 顯示／收起一個元素 ✓（hidden 屬性 ＋ **行內 display** ✓）。
+ *  ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
+ *    所以收起時要一起寫行內 display:none ✓、顯示時要清掉它 ✓。 */
+function showEl(el, on) {
+  if (!el) return;
+  el.hidden = !on;
+  el.style.display = on ? "" : "none";
+}
+
+/** 設定魔術棒的狀態 ✓（見檔頭的 WAND ✓）。
+ *  seqs 有值＝這次 IDS 算出來的建議序（**不寫在畫面上** ✗）；
+ *  setWand(null, true)＝「保留」：輸入區現在就是剛套用的建議序時，魔術棒要繼續站著 ✓
+ *  （客人才能再點換下一個 ✓）；其餘情形收起來 ✓。 */
+function setWand(seqs, keepIfCurrent) {
+  var b = $("wand");
+  if (seqs) { WAND.seqs = seqs.slice(); WAND.ix = -1; }
+  else if (!(keepIfCurrent && WAND.seqs.length && WAND.seqs.indexOf($("seq").value) >= 0)) {
+    WAND.seqs = []; WAND.ix = -1;
+  }
+  if (b) b.hidden = !WAND.seqs.length;
+}
+
+/** 點魔術棒：把**下一個**建議的構形序填進輸入區並重畫 ✓（再點換下一個 ✓）。 */
+function wandNext() {
+  if (!WAND.seqs.length) return;
+  WAND.ix = (WAND.ix + 1) % WAND.seqs.length;
+  var s = WAND.seqs[WAND.ix];
+  $("seq").value = s;
+  lastLabelMode = null;
+  render();
+  toast("已套用建議的構形序「" + s + "」✓（再點 🪄 換下一個 ✓）", "ok");
 }
 
 /** 畫建議（師父第 112 輪的兩個要求）：
@@ -990,8 +1028,8 @@ function renderSuggest(st, r) {
   var wrap = $("sugWrap"), stage = $("sugStage"), cap = $("sugCap");
   var stockBox = $("stockSuggest"), row = $("sugRow");
   var clear = function () {
-    if (wrap) wrap.hidden = true;
-    if (stockBox) stockBox.hidden = true;
+    showEl(wrap, false);
+    showEl(stockBox, false);
     if (stage) stage.innerHTML = "";
     if (row) row.innerHTML = "";
     if (cap) cap.textContent = "";
@@ -1027,7 +1065,7 @@ function renderSuggest(st, r) {
     ? best.s.input + "（本來就是這個字 ✓）"
     : best.s.input + "（" + best.s.fromCh + "→" + best.s.toCh + "）";
   if (!best.s.bmp) cap.textContent += "　非 BMP，可直接點 ✓";
-  wrap.hidden = false;
+  showEl(wrap, true);
 
   /* ② 其餘的放庫存區（拼形式只在 hover hint ✓） */
   if (made.length > 1) {
@@ -1039,10 +1077,10 @@ function renderSuggest(st, r) {
       html += '<div class="cell" data-sug="' + m.s.input + '" title="' + tip + '">' + m.svg + "</div>";
     }
     row.innerHTML = html;
-    stockBox.hidden = false;
+    showEl(stockBox, true);
   } else {
     row.innerHTML = "";
-    stockBox.hidden = true;
+    showEl(stockBox, false);
   }
   return "";
 }
@@ -1242,62 +1280,21 @@ function leafIndexOf(key) {
  */
 var IDS_DIV = { "⿰": [2, 0], "⿱": [2, 1], "⿲": [3, 0], "⿳": [3, 1] };
 
-/** 產生「等比分配」的合成字形 ✓；回傳 {lib, idx} 或 null ✓ */
+/** 產生「等比分配」的合成字形 ✓；回傳 {lib, idx, n, problems, slots} 或 null ✓
+ *
+ *  ★ 正解＝**直接呼叫模塊 ids-glyph.ts 的 idsGlyph()** ✓——
+ *    它把每一葉**等比縮進自己那一格** ✓（例 木 [0,0,100,200]、金 [100,0,200,67] ✓），
+ *    所以**兄弟框不重疊** ✓＝筆劃不會糊成一大塊 ✓。
+ *  ⚠ 舊版（把 200×200 的部件擺在格心、**不縮放**）會讓每一塊都大幅溢出 ✗——
+ *    「⿰木⿳金⿰水火土」就是這樣糊成一團 ✗（師父 2026-10-15 抓到 ✓）。
+ *
+ *  ⚠ 這裡**不要再自己寫一份分框** ✗：曾經寫過兩份，頁面這一份忘了縮放就壞了 ✓。
+ *    分框只有一個來源＝tools/ids-glyph.ts ✓（check-ids-glyph.ts 在驗它 ✓）。 */
 function idsComposeNaive(ids) {
-  var cs = Array.from(String(ids)), i = 0, plan = [];
-  function walk(x0, y0, w, h) {
-    if (i >= cs.length) return false;
-    var c = cs[i];
-    if (IDS_ARITY[c]) {
-      i++;
-      var k = IDS_ARITY[c];
-      for (var j = 0; j < k; j++) {
-        var bx = x0, by = y0, bw = w, bh = h;
-        if (c === "⿰") { bx = x0 + w * j / 2; bw = w / 2; }
-        else if (c === "⿱") { by = y0 + h * j / 2; bh = h / 2; }
-        else if (c === "⿲") { bx = x0 + w * j / 3; bw = w / 3; }
-        else if (c === "⿳") { by = y0 + h * j / 3; bh = h / 3; }
-        else { bx = x0 + w * 0.08; by = y0 + h * 0.08; bw = w * 0.84; bh = h * 0.84; }  /* 包圍類：內縮一點 ✓ */
-        if (!walk(bx, by, bw, bh)) return false;
-      }
-      return true;
-    }
-    i++;
-    /* ★ 師父第 126 輪選了選項 ③：**不縮放、只擺位** ✓——
-       部件按**自己的大小**擺在各半格的**中心** ✓：大的溢出 ✗、小的留白 ✗、兩塊中間重疊 ✓，
-       一看就知道「系統沒有布局資訊」✓（這才是 IDS 該有的樣子 ✓）。 */
-    var ccx = x0 + w / 2, ccy = y0 + h / 2;
-    plan.push({ ch: c, box: [Math.round(ccx - 100), Math.round(ccy - 100), Math.round(ccx + 100), Math.round(ccy + 100)] });
-    return true;
-  }
-  if (!walk(0, 0, 200, 200) || i !== cs.length || !plan.length) return null;
-  /* 找一個現成的 99 引用當**樣板** ✓（照抄它的欄位，只換框與參照 ✓） */
-  var proto = null;
-  for (var q = 0; q < LIB.glyphs.length && !proto; q++) {
-    var gs = LIB.glyphs[q].strokes;
-    for (var r = 0; r < gs.length; r++) if (gs[r].kind === 99 && gs[r].ref !== null) { proto = gs[r]; break; }
-  }
-  if (!proto) return null;
-  var strokes = [];
-  for (var p = 0; p < plan.length; p++) {
-    var gi = glyphIndexOf(plan[p].ch);
-    if (gi === undefined) return null;
-    var ref = drawingIdx(LIB, gi);
-    var s = {};
-    for (var kk in proto) s[kk] = proto[kk];
-    s.box = plan[p].box;
-    s.stretch = [0, 0, 0, 0];          /* 0 ＝ 不額外伸縮 ✓（等比分配就是這樣醜 ✓） */
-    s.ref = ref;
-    strokes.push(s);
-  }
-  var L2 = {};
-  for (var kk2 in LIB) L2[kk2] = LIB[kk2];
-  L2.glyphs = LIB.glyphs.slice();
-  if (LIB.names) L2.names = LIB.names.slice();
-  var idx = L2.glyphs.length;
-  L2.glyphs.push({ strokes: strokes });
-  if (L2.names) L2.names.push("__ids_naive");
-  return { lib: L2, idx: idx, n: plan.length };
+  var r = null;
+  try { r = idsGlyph(String(ids), LIB); } catch (e) { return null; }
+  if (!r || !r.ok) return null;
+  return { lib: r.lib, idx: r.idx, n: r.n, problems: r.problems || [], slots: r.slots };
 }
 
 /* ==================== 任意 IDS → 建議構形序（師父第 125 輪） ====================
@@ -1721,6 +1718,9 @@ function scheduleRender() {
 function render() {
   var st = evalInput($("seq").value);
   lastEval = st;
+  /* ★ 魔術棒：預設收起來 ✓（只有 IDS 模式真的有建議時才站出來 ✓）——
+     但「輸入區現在就是剛套用的建議序」時要留著 ✓（再點換下一個 ✓）。 */
+  setWand(null, true);
 
   var note = $("bigNote");
   /* 浮層提示：換字時先收起來（有新訊息再顯示） */
@@ -1810,7 +1810,9 @@ function render() {
             recSeqs[0] === (rec && rec.seq) ? "手工調的示範序 ✓" : "系統推薦 ✓") +
           "點一下，字就變漂亮了 ✓）";
       }
-      if (wrap2) wrap2.hidden = false;
+      /* ★ 師父第 136 輪：**先不要把構形序顯示出來** ✗——
+         三塊建議區都只留在 DOM 裡（驗收讀得到 ✓），客人看的是魔術棒 🪄 ✓。 */
+      showEl(wrap2, false);
       var row3 = $("sugRow"), sb3 = $("stockSuggest");
       var rowHtml3 = "";
       for (var e3 = 0; e3 < recSeqs.length; e3++) {
@@ -1818,18 +1820,23 @@ function render() {
           '" title="點一下套用這個構形序 ✓">' + recSeqs[e3] + "</button>";
       }
       if (row3) row3.innerHTML = rowHtml3;
-      if (sb3) sb3.hidden = !rowHtml3;
+      showEl(sb3, false);
+      /* ★ 魔術棒站出來 ✓：客人點一下就用下一個建議 ✓（不把序寫在畫面上 ✗） */
+      setWand(recSeqs);
       toast("這是 IDS 的等比分配（**沒有布局資訊** ✓ 所以醜 ✓）——" +
-        "系統建議您試試「" + recSeqs[0] + "」✓（點下去字就變漂亮了 ✓）", naive ? "ok" : "warn");
+        "點輸入區右邊的 🪄 試試系統建議的構形序 ✓（再點換下一個 ✓）", naive ? "ok" : "warn");
     } else {
       clearSuggestRow();
+      setWand(null, false);
       if ($("sugStage")) $("sugStage").hidden = false;
       toast("這是構字式（IDS）" + st.ids + "——目前沒有現成的構形序 ✓；" +
         "下方庫存區有兩個常見合文可以一點就看到 ✓", "warn");
     }
+    /* ★ 師父第 136 輪：**先不要把構形序寫在畫面上** ✗——
+       客人按 🪄 才看到「字突然變美」的那一刻 ✓。 */
     note.textContent = "構字式（IDS）：" + idsToText(st.ids) +
       (naive ? "　※大字是 IDC 等比分配（未經墨跡對齊 ✓ 所以醜 ✓）" : "") +
-      (rec ? "　→ 構形序：" + rec.seq : "");
+      (recSeqs.length ? "　→ 按右邊的 🪄 試試系統建議的構形序 ✓" : "");
     $("seqNote").textContent = "";
     $("philNote").textContent = "";
     $("seqChips").innerHTML = "";
@@ -2097,6 +2104,8 @@ function bind() {
   });
 
   $("saveSeq").addEventListener("click", saveCurrentSeq);
+  /* ★ 師父第 136 輪：**魔術棒 🪄**（DOM 位置在 saveSeq 的前一個 ✓） */
+  if ($("wand")) $("wand").addEventListener("click", wandNext);
 
   /* 筆劃粗細：改 WSCALE 之後**一定要清快取**，否則畫面上還是舊粗細 */
   $("wscale").addEventListener("input", function () {

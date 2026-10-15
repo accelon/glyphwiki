@@ -88,6 +88,8 @@ const html = `<!DOCTYPE html>
   #seq.flash-warn { --fc:rgba(255,196,107,.55); animation:seqflash .7s ease-out 1; }
   .iconbtn { flex:none; width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; }
   .iconbtn svg { width:22px; height:22px; display:block; }
+  /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的構形序時才出現 ✓） */
+  #wand { font-size:20px; line-height:1; }
   .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-top:5px; }
   button { padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--card);
            color:var(--fg); font:inherit; cursor:pointer; white-space:nowrap; }
@@ -222,6 +224,10 @@ const html = `<!DOCTYPE html>
       <span class="seqlbl brand" id="seqlbl">剎那拼形</span>
       <input id="seq" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
              placeholder="輸入任何字或拼形式">
+      <!-- ★ 師父第 136 輪：**魔術棒 🪄** —— 有建議的構形序時才出現 ✓；
+           點一下＝把下一個建議填進輸入區 ✓（再點換下一個 ✓）。
+           DOM 位置在「存起來」（#saveSeq）的前一個 ✓（師父指定的位置 ✓）。 -->
+      <button id="wand" class="iconbtn" title="系統建議的構形序（點一下套用；再點換下一個）" hidden>🪄</button>
       <!-- 存起來：svg 圖示（磁片）＋ 加號；Enter 也可以存。不是合法拼形式時整顆收起 -->
       <button id="saveSeq" class="iconbtn" title="存起來（或在輸入區按 Enter）">
         <svg viewBox="0 0 24 24" aria-hidden="true">
