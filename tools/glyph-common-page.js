@@ -25,6 +25,117 @@ function hsv(h, s, v) {
   return "rgb(" + Math.round((r + m) * 255) + "," + Math.round((g + m) * 255) + "," + Math.round((b + m) * 255) + ")";
 }
 
+/* ============================ Unicode 區塊與配色（兩頁共用） ============================
+ * 12 個 CJK 漢字區塊 ＋ **每個區塊一個色相**：360 / 12 ＝ 30°，
+ * 剛好繞一圈、相鄰兩區只差 30°，變化最柔和（不用黃金角 137.5°：那雖然最好分辨，
+ * 但相鄰區塊會跳到完全不同的色系，不是「柔和」）。
+ *
+ * ⚠ **這一份是唯一的來源** ✓：字集瀏覽頁用它畫區塊面板與每一格 ✓，
+ *    拼形頁用它給**候選字**上色 ✓（師父 2026-10-16：「候選字依 unicode 分區使用
+ *    不同顏色，配色同 glyph-browser.html」✓）。兩頁各寫一份的話，
+ *    只要一邊改了色相步長就會「A 頁可以、B 頁不一樣」✗——這個專案吃過那個虧。
+ *
+ * ⚠ **`BLOCKS` 的順序有意義**：色相 ＝ 索引 × 30° ✓，
+ *    動了順序＝兩頁的顏色一起變 ✗（是 BMP、A、B…相容補 的順序，**不是**碼位順序 ✓）。
+ *
+ * HSV（不是 HSL）：固定 S／V 時 HSV 的明度比 HSL 均勻 ✓；
+ * 黑底上 S 太低會灰掉、太高會刺眼，V＝1 讓顏色最亮 ✓。
+ * 顏色一律經 CSS 變數 `--bc` 傳下去，字形 `fill:currentColor` ✓
+ * ——這樣「字形色／邊框色／碼位色」只有一個來源，不會兩套色互相打架 ✓。 */
+var BLOCKS = [
+  { id: "BMP",   mark: "",   name: "CJK Unified Ideographs（基本區）",              a: 0x4E00,  b: 0x9FFF },
+  { id: "A",     mark: "A",  name: "CJK Unified Ideographs Extension A",           a: 0x3400,  b: 0x4DBF },
+  { id: "B",     mark: "B",  name: "CJK Unified Ideographs Extension B",           a: 0x20000, b: 0x2A6DF },
+  { id: "C",     mark: "C",  name: "CJK Unified Ideographs Extension C",           a: 0x2A700, b: 0x2B73F },
+  { id: "D",     mark: "D",  name: "CJK Unified Ideographs Extension D",           a: 0x2B740, b: 0x2B81F },
+  { id: "E",     mark: "E",  name: "CJK Unified Ideographs Extension E",           a: 0x2B820, b: 0x2CEAF },
+  { id: "F",     mark: "F",  name: "CJK Unified Ideographs Extension F",           a: 0x2CEB0, b: 0x2EBEF },
+  { id: "G",     mark: "G",  name: "CJK Unified Ideographs Extension G",           a: 0x30000, b: 0x3134F },
+  { id: "H",     mark: "H",  name: "CJK Unified Ideographs Extension H",           a: 0x31350, b: 0x323AF },
+  { id: "I",     mark: "I",  name: "CJK Unified Ideographs Extension I",           a: 0x2EBF0, b: 0x2EE5F },
+  { id: "相容",   mark: "相", name: "CJK Compatibility Ideographs（相容區）",        a: 0xF900,  b: 0xFAFF },
+  { id: "相容補", mark: "補", name: "CJK Compatibility Ideographs Supplement（相容補充）", a: 0x2F800, b: 0x2FA1F }
+];
+
+/* ★ 師父 2026-10-16：碼位**左下角**要標出「這個字屬於哪一區」✓——
+   Extension 區給**英文字母** ✓（A..I ＝ Ext A..I ✓）；
+   兩個相容區給中文短標「相」「補」✓（**不要**給 J／K ✗：Unicode 已經有 Ext J 了，
+   給了以後會跟真的擴充區撞名 ✗）；
+   **基本區（BMP，2 萬字）不標** ✓——那是師父指定的例外 ✓、也是候選字裡最多的一群 ✓。
+   `mark: ""` ＝ 不標 ✓。 */
+
+var HUE_STEP = 30, SAT = 0.55, VAL = 1.0;
+
+/** 無碼位（純部件）或落在 12 個 CJK 區塊以外的字：中性灰 ✓ */
+var NEUTRAL = "rgb(146,152,162)";
+
+/** 這個碼位落在第幾個區塊（`BLOCKS` 的索引 ✓）；不在 12 區裡就是 −1 ✓ */
+function blockIndexOf(cp) {
+  for (var i = 0; i < BLOCKS.length; i++) if (cp >= BLOCKS[i].a && cp <= BLOCKS[i].b) return i;
+  return -1;
+}
+function colorOfBlock(bi) { return bi < 0 ? NEUTRAL : hsv(bi * HUE_STEP, SAT, VAL); }
+function colorOfCp(cp) { return colorOfBlock(blockIndexOf(cp)); }
+
+/** ★ 師父 2026-10-16：「**BMP 要排在 Ext A 前面**」✓——
+ *  ⚠ **按碼位排會相反** ✗：Ext A 是 U+3400–U+4DBF、BMP 是 U+4E00–U+9FFF ✓，
+ *    所以 `a - b` 會把 Ext A 全部排在 BMP 前面 ✗（客人先看到的是罕用字 ✓，不是常用字 ✗）。
+ *  這裡改成**照 `BLOCKS` 的順序**排 ✓（BMP → Ext A → B → … → Ext I → 相容 → 相容補 ✓），
+ *  同一個區裡面才按碼位 ✓。不在 12 區裡的碼位排最後 ✓（`blockOrderOf` 給 `BLOCKS.length` ✓）。 */
+function blockOrderOf(cp) {
+  var bi = blockIndexOf(cp);
+  return bi < 0 ? BLOCKS.length : bi;
+}
+/** 排序用：**先看是哪一區（照 BLOCKS 的順序 ✓）、再看碼位** ✓ */
+function cmpByBlock(a, b) { return blockOrderOf(a) - blockOrderOf(b) || a - b; }
+
+/* ============================ 檢字運算子的用法（兩頁共用） ============================
+ * 師父 2026-10-16：「**部件檢字狀態時，要顯示運算子的用法**（滑過「部件檢字」就 popup）」✓。
+ * 這兩頁用的是**同一組語法** ✓（`parseSearch()` 是一套 ✓），所以說明的內容**只寫一份** ✓——
+ * 分成兩份就等著「一邊改了、另一邊沒改」✗（這個專案吃過那個虧 ✓）。
+ * ⚠ `U+908F` 那一條**兩頁行為不同** ✗（字集瀏覽頁＝跳到那個碼位 ✓；拼形頁＝拿那個字去檢字 ✓），
+ *   所以**只有那一行**由呼叫端給 ✓（`cpLine` ✓），其餘逐字相同 ✓（驗收會比對兩頁 ✓）。 */
+var SEARCH_HELP_ROWS = [
+  ["木+", "木在左"],
+  ["+木", "木在右"],
+  ["木/", "木在上"],
+  ["/木", "木在下"],
+  ["口木", "同時含口與木（往深處找）"],
+  ["口口", "口出現兩次"],
+  ["4木日", "扣掉木、日之後剩 4 畫"],
+  ["4", "4 畫的獨體字"]
+];
+
+/** 上面那張表的 HTML ✓（`cpLine` 是 `[範例, 說明]`，沒有就只列共用的那幾條 ✓）。 */
+function searchHelpHtml(cpLine) {
+  var out = [], i;
+  for (i = 0; i < SEARCH_HELP_ROWS.length; i++) {
+    out.push("<b>" + SEARCH_HELP_ROWS[i][0] + "</b> " + SEARCH_HELP_ROWS[i][1]);
+  }
+  if (cpLine) out.push("<b>" + cpLine[0] + "</b> " + cpLine[1]);
+  return out.join("<br>");
+}
+
+/** 這個碼位的「左下角小標」文字 ✓（Ext A..I＝A..I；相容＝相、相容補＝補；基本區／區外＝空 ✓） */
+function blockMarkOf(cp) {
+  var bi = blockIndexOf(cp);
+  return bi < 0 ? "" : (BLOCKS[bi].mark || "");
+}
+/** 上面那個小標的 HTML ✓（兩頁共用同一份 markup ✓，樣式在各自的 builder ✓）。
+ *  沒有小標（基本區 ✓）就回空字串 ✓——**不要**留一個空的 span ✗（會多佔一點寬度 ✓）。 */
+function blockMarkHtml(cp) {
+  var m = blockMarkOf(cp);
+  return m ? '<span class="blkmark">' + m + "</span>" : "";
+}
+/** 字形索引 → 它的碼位所屬區塊的顏色 ✓。
+ *  ⚠ 要**擋掉越界的索引** ✗：拼形頁的合成字（fork 出來的庫）索引可能超出全域 `LIB` ✓，
+ *    直接查會丟例外、整個重畫掛掉 ✗（這一頁只是要一個顏色，不值得為它冒險 ✓）。 */
+function colorOfGlyph(i) {
+  if (i == null || i < 0 || !LIB || i >= LIB.glyphs.length) return NEUTRAL;
+  var cp = codePointOf(LIB, i);
+  return cp ? colorOfCp(cp) : NEUTRAL;
+}
+
 /* ============================ 引擎與描繪 ============================ */
 
 /* 筆劃粗細：KAGE 內建能力，就是 kMinWidthY／kMinWidthT／kMinWidthU／kWidth
@@ -251,4 +362,194 @@ function compSeqHtml(boxes, active, labelOf) {
     out.push(compMiniHtml(b, labelOf ? labelOf(b) : "", b.order === active));
   }
   return out.join("");
+}
+
+/* ============================ gzip 解壓（兩頁共用） ============================
+ * 為什麼不能只靠 `DecompressionStream`：**微信內建瀏覽器沒有它** ✗——
+ * iOS 的 WKWebView 要 **16.4** 才有 ✓、Android 的舊 X5 核心也沒有 ✓。
+ * 沒有它就等於整包字庫解不開 → 頁面只剩「載入失敗」、庫存空的、輸入沒反應 ✗
+ * （師父 2026-10-16 回報：「微信打開無法載入庫存拼形，輸入也沒有動作」✓）。
+ *
+ * 所以這裡自己帶一個**純 JS 的 DEFLATE 解碼**（tinf 系、公開領域 ✓）當後備：
+ * 只要是跑得動這個頁面的瀏覽器都有 ✓，而且順便不再依賴 `Blob.stream()`／`Response` ✓
+ * （那兩個在舊 WKWebView 也要 14.1 才有 ✓）。實測解 2.33 MB 的 gz →
+ * 4.70 MB 的字庫約 **97 ms**（桌機 ✓），比內建的那條只慢一點點，當後備剛好 ✓。 */
+
+var LEN_BASE = [3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59,
+                67, 83, 99, 115, 131, 163, 195, 227, 258];
+var LEN_EXTRA = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3,
+                 4, 4, 4, 4, 5, 5, 5, 5, 0];
+var DIST_BASE = [1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769,
+                 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577];
+var DIST_EXTRA = [0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8,
+                  9, 9, 10, 10, 11, 11, 12, 12, 13, 13];
+var CLEN_ORDER = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+/** canonical Huffman 表：`count[len]`＝碼長 len 的符號數、`sym`＝依碼長排序的符號 */
+function HuffTree(n) { this.count = new Uint16Array(16); this.sym = new Uint16Array(n); }
+function huffBuild(tree, lengths, n) {
+  var i, l;
+  for (i = 0; i < n; i++) tree.count[lengths[i]]++;
+  tree.count[0] = 0;               /* 碼長 0＝沒有這個符號，不佔位置 ✓ */
+  var offs = new Uint16Array(16), sum = 0;
+  for (l = 1; l <= 15; l++) { offs[l] = sum; sum += tree.count[l]; }
+  for (i = 0; i < n; i++) if (lengths[i]) tree.sym[offs[lengths[i]]++] = i;
+}
+
+/** 裸的 DEFLATE（沒有 zlib／gzip 標頭）。`hint`＝預期大小（gzip 尾端的 ISIZE ✓）。 */
+function inflateRaw(src, hint) {
+  var sp = 0, bitcount = 0, bitbuffer = 0;
+  var out = new Uint8Array((hint > 0 ? hint : 1 << 16) + 64), op = 0;
+  var fixed = null;
+
+  function grow(need) {
+    var want = out.length * 2;
+    while (want < need) want *= 2;
+    var bigger = new Uint8Array(want);
+    bigger.set(out.subarray(0, op));
+    out = bigger;
+  }
+  /* 位元讀取：一次最多要 16 位，補到用完為止（緩衝區最多 23 位，不會溢位 ✓） */
+  function ensure(n) {
+    while (bitcount < n) {
+      if (sp >= src.length) throw new Error("壓縮資料提早結束");
+      bitbuffer |= src[sp++] << bitcount;
+      bitcount += 8;
+    }
+  }
+  function bits(n) {
+    if (n === 0) return 0;
+    ensure(n);
+    var v = bitbuffer & ((1 << n) - 1);
+    bitbuffer >>>= n;
+    bitcount -= n;
+    return v;
+  }
+  /** tinf 的解碼法：逐位往下走，`count` 表就是 canonical 的界線 ✓ */
+  function symbol(t) {
+    var sum = 0, cur = 0, len = 0;
+    do {
+      cur = 2 * cur + bits(1);
+      len++;
+      if (len > 15) throw new Error("Huffman 碼不合法");
+      sum += t.count[len];
+      cur -= t.count[len];
+    } while (cur >= 0);
+    return t.sym[sum + cur];
+  }
+  function fixedTrees() {
+    if (fixed) return fixed;
+    var l = new Uint8Array(288), i;
+    for (i = 0; i < 144; i++) l[i] = 8;
+    for (; i < 256; i++) l[i] = 9;
+    for (; i < 280; i++) l[i] = 7;
+    for (; i < 288; i++) l[i] = 8;
+    var lt = new HuffTree(288); huffBuild(lt, l, 288);
+    var d = new Uint8Array(30);
+    for (i = 0; i < 30; i++) d[i] = 5;
+    var dt = new HuffTree(30); huffBuild(dt, d, 30);
+    fixed = { lit: lt, dist: dt };
+    return fixed;
+  }
+  function dynamicTrees() {
+    var hlit = bits(5) + 257, hdist = bits(5) + 1, hclen = bits(4) + 4;
+    var clen = new Uint8Array(19), i;
+    for (i = 0; i < hclen; i++) clen[CLEN_ORDER[i]] = bits(3);
+    var ct = new HuffTree(19); huffBuild(ct, clen, 19);
+    var total = hlit + hdist, lens = new Uint8Array(total), n = 0;
+    while (n < total) {
+      var s = symbol(ct), rep, prev;
+      if (s < 16) lens[n++] = s;
+      else if (s === 16) {
+        if (n === 0) throw new Error("壓縮資料的長度碼不合法");
+        prev = lens[n - 1]; rep = 3 + bits(2);
+        while (rep-- > 0 && n < total) lens[n++] = prev;
+      } else if (s === 17) { rep = 3 + bits(3); while (rep-- > 0 && n < total) lens[n++] = 0; }
+      else { rep = 11 + bits(7); while (rep-- > 0 && n < total) lens[n++] = 0; }
+    }
+    var lt = new HuffTree(hlit); huffBuild(lt, lens, hlit);
+    var dt = new HuffTree(hdist); huffBuild(dt, lens.subarray(hlit), hdist);
+    return { lit: lt, dist: dt };
+  }
+
+  for (;;) {
+    var last = bits(1), type = bits(2), t, len, sym, dsym, dist, i;
+    if (type === 1) t = fixedTrees();
+    else if (type === 2) t = dynamicTrees();
+    else if (type !== 0) throw new Error("壓縮區塊的型別不合法");
+    if (type === 0) {
+      /* 未壓縮區塊：丟掉不足一個 byte 的位元、對齊到 byte 邊界 ✓
+         （緩衝區裡永遠不滿 8 位，所以不會丟掉整顆 byte ✓） */
+      bitbuffer = 0; bitcount = 0;
+      if (sp + 4 > src.length) throw new Error("壓縮資料提早結束");
+      len = src[sp] | (src[sp + 1] << 8);
+      var nlen = src[sp + 2] | (src[sp + 3] << 8);
+      sp += 4;
+      if ((len ^ 0xffff) !== nlen) throw new Error("未壓縮區塊的長度不合");
+      if (sp + len > src.length) throw new Error("壓縮資料提早結束");
+      if (op + len > out.length) grow(op + len);
+      for (i = 0; i < len; i++) out[op++] = src[sp++];
+    } else {
+      for (;;) {
+        sym = symbol(t.lit);
+        if (sym < 256) {
+          if (op >= out.length) grow(op + 1);
+          out[op++] = sym;
+          continue;
+        }
+        if (sym === 256) break;                       /* 區塊結束 ✓ */
+        sym -= 257;
+        if (sym >= 29) throw new Error("壓縮資料的長度碼不合法");
+        len = LEN_BASE[sym] + bits(LEN_EXTRA[sym]);
+        dsym = symbol(t.dist);
+        if (dsym >= 30) throw new Error("壓縮資料的距離碼不合法");
+        dist = DIST_BASE[dsym] + bits(DIST_EXTRA[dsym]);
+        if (dist > op) throw new Error("壓縮資料的距離超出範圍");
+        if (op + len > out.length) grow(op + len);
+        if (dist >= len) {
+          out.set(out.subarray(op - dist, op - dist + len), op);   /* 不重疊→整段搬 ✓ */
+          op += len;
+        } else {
+          for (i = 0; i < len; i++) out[op + i] = out[op + i - dist];   /* 重疊→逐 byte ✓ */
+          op += len;
+        }
+      }
+    }
+    if (last) break;
+  }
+  /* ⚠ 回**長度剛好**的一份：`decodeLibrary` 直接吃索引，給一份 buffer 比實際長的不保險 ✓ */
+  var exact = new Uint8Array(op);
+  exact.set(out.subarray(0, op));
+  return exact;
+}
+
+/** gzip 外殼（跳過標頭、讀尾端的 ISIZE、把 DEFLATE 交給 `inflateRaw`） */
+function inflateGzip(raw) {
+  if (raw.length < 18 || raw[0] !== 0x1f || raw[1] !== 0x8b) throw new Error("不是 gzip 資料");
+  if (raw[2] !== 8) throw new Error("gzip 的壓縮方法不是 deflate");
+  var flg = raw[3], p = 10;
+  if (flg & 4) { if (p + 2 > raw.length) throw new Error("gzip 標頭不完整"); p += 2 + (raw[p] | (raw[p + 1] << 8)); }
+  if (flg & 8) { while (p < raw.length && raw[p]) p++; p++; }        /* FNAME ✓ */
+  if (flg & 16) { while (p < raw.length && raw[p]) p++; p++; }       /* FCOMMENT ✓ */
+  if (flg & 2) p += 2;                                              /* FHCRC ✓ */
+  if (p > raw.length - 8) throw new Error("gzip 標頭不完整");
+  var isize = (raw[raw.length - 4] | (raw[raw.length - 3] << 8) |
+               (raw[raw.length - 2] << 16) | (raw[raw.length - 1] << 24)) >>> 0;
+  var got = inflateRaw(raw.subarray(p, raw.length - 8), isize);
+  if (got.length !== isize) throw new Error("解壓後的大小不符（" + got.length + " ≠ " + isize + "）");
+  return got;
+}
+
+/** 解 gzip，回 Promise<Uint8Array>：**先試內建的** ✓（最快），沒有／失敗才走純 JS ✓。 */
+function gunzipBytes(raw) {
+  if (typeof DecompressionStream === "function" && typeof Blob === "function" &&
+      Blob.prototype && typeof Blob.prototype.stream === "function") {
+    try {
+      var stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return new Response(stream).arrayBuffer().then(function (b) { return new Uint8Array(b); },
+        function () { return inflateGzip(raw); });
+    } catch (e) { /* 掉到下面的純 JS ✓ */ }
+  }
+  try { return Promise.resolve(inflateGzip(raw)); }
+  catch (e) { return Promise.reject(e); }
 }

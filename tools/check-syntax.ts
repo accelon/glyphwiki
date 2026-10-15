@@ -66,6 +66,15 @@ if (bad.length) {
   for (const b of bad) console.error(`  ${b.file}：${b.msg.split("\n")[0]}`);
   console.error(`\n最常見的原因：**在 template literal 的註解裡寫了反引號** ✗` +
     `（builder 的 HTML、驗收的探針都是 template literal）——註解要引字請用「」✓。`);
+  /* ★ 2026-10-16 補第二個常見原因：這一支的錯誤訊息**沒有行號**時，先看檔頭有沒有 BOM ✗——
+     `position.lineText` 會是 `ï»¿#!/usr/bin/env bun` ✓。
+     Bun **執行得動**有 BOM 的檔案 ✓，但 transpiler 直接 `Syntax Error` ✗（兩邊不一致，
+     很容易誤判成「程式碼有錯」✗）。BOM 是怎麼來的：**PowerShell 的
+     `Set-Content -Encoding UTF8` 會加 BOM** ✓（批次改檔要改用
+     `[IO.File]::WriteAllText($p, $t, (New-Object Text.UTF8Encoding($false)))` ✓）。
+     實際踩過：第 139 輪用 Set-Content 改 builder 的註解 → 兩個 builder 都被加了 BOM ✗。 */
+  console.error(`還有一個原因（訊息**沒有行號**時先查這個）：檔頭被加了 **UTF-8 BOM** ✗——\n` +
+    `  Bun 執行得動、transpiler 直接 Syntax Error ✓（PowerShell 的 Set-Content -Encoding UTF8 會加 ✓）。`);
   process.exit(1);
 }
 console.log(`✓ 語法檢查通過（${nTs} 個 .ts、${nJs} 個 .js）`);

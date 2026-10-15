@@ -2,7 +2,7 @@
 //
 // 要回答的問題：
 //   1. 序列裡每個字在不在庫中？「𩀨」「䞃」這兩個罕字是關鍵。
-//   2. 𩀨 自己的構形序列是什麼？（能不能用庫裡有的部件遞歸組出來）
+//   2. 𩀨 自己的拼形序列是什麼？（能不能用庫裡有的部件遞歸組出來）
 //   3. 「隹」在左邊的字有哪些？（師父要的「按部件位置搜尋」先做一次人工版）
 //
 // 用法: bun run tools/probe-chaicoi.ts
@@ -28,7 +28,7 @@ const GRAIL = "招財進寶";
 const SEQ = "邏羅寶貝𩀨從䞃致招";
 
 console.log("=== 1. 「招財進寶」相關序列的逐字檢查 ===");
-for (const [label, s] of [["目標詞", GRAIL], ["構形序列", SEQ]] as [string, string][]) {
+for (const [label, s] of [["目標詞", GRAIL], ["拼形序列", SEQ]] as [string, string][]) {
   console.log(`\n-- ${label}：${s}（${Array.from(s).length} 字）`);
   for (const c of Array.from(s)) {
     const i = idxOf(c);

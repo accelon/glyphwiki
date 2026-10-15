@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * seq-search.ts — **把 IDS 變成構形序**（＝`glyph-by-ids.md` 的〈優化從 IDS 找到構形序〉✓）。
+ * seq-search.ts — **把 IDS 變成拼形序**（＝`glyph-by-ids.md` 的〈優化從 IDS 找到拼形序〉✓）。
  *
- * 一句話：**古法**（IDS）是前綴式的描述 ✓、**今法**（構形序）是「一個真字 ＋ 幾步替換」✓。
+ * 一句話：**古法**（IDS）是前綴式的描述 ✓、**今法**（拼形序）是「一個真字 ＋ 幾步替換」✓。
  * 這支負責把前者翻成後者 ✓——而且**每一步都真的用引擎組一次** ✓，
  * 讓引擎當唯一裁判 ✓（徒兒前五輪都在「猜」哪個配法對 ✗，猜錯四次 ✗）。
  *
@@ -47,7 +47,7 @@ import { loadLibrary } from "./lib-load.ts";
 
 /* ============================ 樹（序列運算式） ============================ */
 
-/** 構形序的樹 ✓——`{ ch }` 是一個字 ✓、`{ op, kids }` 是一個算子 ＋ 分量 ✓。 */
+/** 拼形序的樹 ✓——`{ ch }` 是一個字 ✓、`{ op, kids }` 是一個算子 ＋ 分量 ✓。 */
 export type SeqNode = { ch: string } | { op: string; kids: SeqNode[] };
 
 const IDS_OPS = "⿰⿱⿲⿳⿴⿵⿶⿷⿸⿹⿺⿻";
@@ -423,13 +423,13 @@ export interface SeqSearchOpts {
 
 /* ============================ 主搜尋 ============================ */
 
-/** ★★ 第 150 輪（師父抓到的 bug ✓）：**「引擎 ok」不等於「這是構形序」** ✗。
+/** ★★ 第 150 輪（師父抓到的 bug ✓）：**「引擎 ok」不等於「這是拼形序」** ✗。
  *
  *  師父說：「`嚣宀吅` 這不對吧？`嚣` 中看不到 `宀`。」——**對** ✓。
  *  引擎對它的說法只有一行：`串接部件 嚣宀吅（橫向 3 等分）` ✗——
  *  **根本沒有替換** ✗，只是把三個字**橫向並排** ✗。
  *  而徒兒的候選檢查是 `if (!q || !q.ok) continue;` ✗——「併排」也會 `ok=true` ✗，
- *  所以徒兒把「三個無關的字排在一起」當成構形序收下了 ✗。
+ *  所以徒兒把「三個無關的字排在一起」當成拼形序收下了 ✗。
  *
  *  ✅ 正確的閘門：引擎的 log 裡要有一個 **`的`**（格式是「`囂 的 宀 → 吅`」✓）。
  *  ⚠ **例外**：只有**一個字**的序（`邏` ✓）是合法的 0 步 ✓——那時不必有替換 ✓。
@@ -491,7 +491,7 @@ function isRealSeq(L: F.Library, seq: string): boolean {
   for (const l of (q.log ?? [])) if (String(l).includes("的")) return true;
   return false;
 }
-/** 核心：**IDS → 構形序** ✓（真的組一次當裁判 ✓、葉集合必須涵蓋目標 ✓）。 */
+/** 核心：**IDS → 拼形序** ✓（真的組一次當裁判 ✓、葉集合必須涵蓋目標 ✓）。 */
 export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {}): SeqSearchResult {
   const target = parseSeqTree(ids);
   const empty: SeqSearchResult = {
@@ -846,7 +846,7 @@ export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {})
       }
       if (!ok) continue;    /* ⚠ 空的 pairs 也要收 ✓（0 步＝這個字**就是**那個形 ✓，`明` 就是 ✓） */
       const seq = ch + pairs.map(([o, n]) => o + n).join("");
-      if (!isRealSeq(lib, seq)) continue;       /* ★ 第 150 輪：併排不算構形序 ✓ */
+      if (!isRealSeq(lib, seq)) continue;       /* ★ 第 150 輪：併排不算拼形序 ✓ */
       if (!framesInCanvas(lib, seq)) continue;  /* ★ 第 150 輪：超框不算 ✓ */
       let synthTree: SeqNode = { ch: ch };
       for (const [o, n] of pairs) synthTree = replaceLeaf(synthTree, o, { ch: n });
@@ -1008,7 +1008,7 @@ export function searchSeqForIds(lib: Lib, ids: string, opts: SeqSearchOpts = {})
               { let q: any = null;
                 try { q = evalSeq(lib, seq, {}); } catch { q = null; }
                 if (!q || !q.ok) continue;
-                if (!isRealSeq(lib, seq)) continue;      /* ★ 第 150 輪：併排不算構形序 ✓ */
+                if (!isRealSeq(lib, seq)) continue;      /* ★ 第 150 輪：併排不算拼形序 ✓ */
                 if (!framesInCanvas(lib, seq)) continue;  /* ★ 第 150 輪：超框不算 ✓ */ }
               const tree: SeqNode = values.length === 1
                 ? values[0]!

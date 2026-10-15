@@ -170,6 +170,19 @@ colorOfBlock(bi) = bi < 0 ? NEUTRAL : hsv(bi * HUE_STEP, SAT, VAL)
 整個介面**固定深色**（`color-scheme:dark`）——深底才看得出顏色。**描邊模式**
 （`body.outline`）把 `fill` 改成 `stroke:currentColor; stroke-width:2.2`。
 
+> ★ 2026-10-16：**這一節的調色盤已經搬進共用層** `tools/glyph-common-page.js`
+> （`BLOCKS`／`blockIndexOf()`／`colorOfBlock()`／`colorOfCp()`／`colorOfGlyph()` ✓）
+> ——拼形頁的**候選字**要**同一套色** ✓（師父：「候選字依 unicode 分區使用不同顏色，
+> 配色同 glyph-browser.html」✓，見 `pinxing.md` §138）。
+> ⚠ 兩頁**逐字同一份** ✓：這一頁**不要**再定義第二份 ✗
+> （`check-browser.ts` 驗「本頁只有一份」✓、`check-pinxing.ts` 驗「兩頁逐字相同」✓）。
+>
+> ★ 同一天追加：每一格的**碼位左下角**加一個小標＝那一格屬於哪一區 ✓
+> （Ext A..I 給**英文字母** ✓、相容區給「相」「補」✓、**基本區 2 萬字不標** ✓——
+> 師父的指示 ✓，兩頁的候選字都要 ✓、markup 共用同一份 `blockMarkHtml()` ✓）。
+> 樣式：**粗體 Arial** ＋ `color:var(--bc)`（跟字形同色 ✓）＋ 11px（比碼位大一級 ✓）。
+> ⚠ 碼位的淡化要放在內層的 `.cp` ✓：`opacity` 在 `.c` 上會蓋住子樹 ✗，小標就不醒目了 ✗。
+
 ---
 
 ## 6. 詳細卡
@@ -181,7 +194,7 @@ colorOfBlock(bi) = bi < 0 ? NEUTRAL : hsv(bi * HUE_STEP, SAT, VAL)
 「點一下 → 以「X」為部件搜尋」）；**異體**（§6.3）；**由哪些部件構成**（KAGE 引用，
 標方位如「左」「右」「滿」，∪ IDS 部件標「IDS」；方位由 `inkZoneOf` 量墨跡得出，
 失敗時退回引用框的粗略方位）；**動作**（`以「X」為部件搜尋`、`複製 U+XXXX`、
-`複製構形序列`＝`U+FE35` ＋ 該字 ＋ `U+FE36`）。每張卡有自己的一組動作按鈕，
+`複製拼形序列`＝`U+FE35` ＋ 該字 ＋ `U+FE36`）。每張卡有自己的一組動作按鈕，
 所以複製到的就是那張卡的字。
 
 **堆疊行為**：
@@ -286,7 +299,7 @@ rowsEl.style.transform = "translateY(" + first * ROWH + "px)"
 | 點「異體」的縮圖 | 找出使用那個異體的字 | ✔ | ✘ |
 | 點卡片的 `×` | 關掉那一張卡 | ✘ | −1 張 |
 | 點「複製 U+XXXX」 | 碼位字串寫入剪貼簿 | ✘ | ✘ |
-| 點「複製構形序列」 | `U+FE35` ＋ 字 ＋ `U+FE36` 寫入剪貼簿 | ✘ | ✘ |
+| 點「複製拼形序列」 | `U+FE35` ＋ 字 ＋ `U+FE36` 寫入剪貼簿 | ✘ | ✘ |
 | 點「設置」／點下拉外面 | 開合下拉 | ✘ | ✘ |
 | 改「大小」 | `CELL` 改變、重排版 | ✘ | ✘ |
 | 拉「筆劃」 | 清 SVG 快取、重畫格區與詳細卡 | ✘ | **收成 1 張** |

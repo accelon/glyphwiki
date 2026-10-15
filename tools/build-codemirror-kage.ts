@@ -6,11 +6,11 @@
  * 與 `build-kage-viewer.ts`（單純的字形檢視）是兩支獨立的頁面，互不影響。
  *
  * 行為（師父定案）：
- *   * 文中**所有**構形序列就地換成內嵌 SVG（正常閱讀）
+ *   * 文中**所有**拼形序列就地換成內嵌 SVG（正常閱讀）
  *   * **光標所在的那一個**還原成 `︵…︶` 純文字（這樣才改得動），
  *     同時在浮窗裡放大預覽它
  *   * 光標在序列右邊時，浮窗下方列出可替換部件（字形預覽按鈕，含層級）
- *   * doc 裡永遠是 `︵…︶` 純文字 → 複製出去是構形序列、可刪可還原（提案第 0 條／第 4、5 條）
+ *   * doc 裡永遠是 `︵…︶` 純文字 → 複製出去是拼形序列、可刪可還原（提案第 0 條／第 4、5 條）
  *
  * 內嵌來源：
  *   * kage-engine（原始碼）
@@ -163,8 +163,8 @@ const html = `<!DOCTYPE html>
 <body>
 <h1>自由組字編輯器</h1>
 <div class="sub">
-  CodeMirror 6 ｜文中所有構形序列就地換成內嵌 SVG；<b>光標所在的那一個還原成 <code>︵…︶</code> 純文字</b>並在浮窗放大預覽。
-  doc 裡永遠是純文字，所以複製出去是構形序列、可以刪、可以還原修改。
+  CodeMirror 6 ｜文中所有拼形序列就地換成內嵌 SVG；<b>光標所在的那一個還原成 <code>︵…︶</code> 純文字</b>並在浮窗放大預覽。
+  doc 裡永遠是純文字，所以複製出去是拼形序列、可以刪、可以還原修改。
 </div>
 
 <div class="panel">
@@ -179,7 +179,7 @@ const html = `<!DOCTYPE html>
     <label>顏色 <input id="color" type="color" value="#222222"></label>
     <label>浮窗字級 <input id="psize" type="number" min="40" max="240" value="96" step="8"></label>
     <button id="toggle-char" aria-pressed="true">正常字浮窗：開</button>
-    <button id="ins">插入構形序列</button>
+    <button id="ins">插入拼形序列</button>
     <button id="reset">還原範例</button>
   </div>
   <div id="editor"></div>
@@ -189,13 +189,13 @@ const html = `<!DOCTYPE html>
 <details>
   <summary>怎麼運作（語意、光標行為、護欄、資料與授權）</summary>
   <p>
-    <b>構形序列的語意</b>（依 <code>format.md</code>「進階任務 2」）：
+    <b>拼形序列的語意</b>（依 <code>format.md</code>「進階任務 2」）：
     <code>峰夆電雨水</code> ＝ 峰 中的「夆」替換為「電雨水」，而「電雨水」＝ 電 上方的「雨」改為「水」。
-    規則為 <b>基字 ＋ 舊部件 ＋ 新內容…</b>，新內容本身可以再是一個構形序列（遞歸）。
+    規則為 <b>基字 ＋ 舊部件 ＋ 新內容…</b>，新內容本身可以再是一個拼形序列（遞歸）。
   </p>
   <p>
     <b>內文語法與三條護欄</b>：寫在 <code>︵</code> U+FE35 與 <code>︶</code> U+FE36 之間，
-    <b>必須成對、不跨行、長度 ≤ 12 個部件</b>。三條都成立才當成構形序列，
+    <b>必須成對、不跨行、長度 ≤ 12 個部件</b>。三條都成立才當成拼形序列，
     否則原樣顯示純文字（不會吃掉內文）。
   </p>
   <p>
@@ -330,7 +330,7 @@ const seqDeco = CM6.ViewPlugin.fromClass(class {
  * 所以在 copy 事件裡**直接寫 doc 的文字**，不讓瀏覽器從 DOM 推斷。
  *
  * 兩種格式都寫：
- *   text/plain → 就是 ︵街圭日︶（構形序列本身）。貼回本編輯器、貼進純文字
+ *   text/plain → 就是 ︵街圭日︶（拼形序列本身）。貼回本編輯器、貼進純文字
  *                編輯器都成立，而且可以再編輯（提案第 0 條）。
  *   text/html  → 同一段文字，但序列的部分是內嵌 SVG。
  *                貼到支援 HTML 的地方（Office、網頁、Obsidian）會顯示合成字形。
@@ -345,7 +345,7 @@ function buildRichHtml(from, to) {
     }
     const svg = seg.result.ok ? R.svgForResult(seg.result) : null;
     if (!svg) { parts.push(escapeHtml("︵" + seg.expr + "︶")); continue; }
-    // 序列的部分是內嵌 SVG，並保留構形序列為 title（滑上去看得到原始序列）
+    // 序列的部分是內嵌 SVG，並保留拼形序列為 title（滑上去看得到原始序列）
     parts.push('<span class="gc-inline" style="display:inline-block" title="' +
       escapeAttr(seg.expr) + '">' + svg + "</span>");
   }
@@ -403,7 +403,7 @@ function installClipboard() {
   dom.addEventListener("paste", function (e) {
     const dt = e.clipboardData;
     if (!dt) return;
-    // 一律只取純文字（構形序列），忽略 HTML——這樣貼進來一定是可再編輯的序列
+    // 一律只取純文字（拼形序列），忽略 HTML——這樣貼進來一定是可再編輯的序列
     const raw = dt.getData("text/plain");
     if (!raw) return;
     // 必須擋掉 CodeMirror 自己的貼上處理器，否則會插入兩次。
@@ -436,7 +436,7 @@ let composing = false;   // IME 組字中不做裝飾相關的重算
  *   true  —— 光標停在普通文字後面時，只要左邊的字可組字，就顯示浮窗（含部件按鈕）
  *   false —— 這種情況不顯示浮窗
  *
- * **不影響**「光標在構形序列裡面」的浮窗：那一個是編輯序列時必要的
+ * **不影響**「光標在拼形序列裡面」的浮窗：那一個是編輯序列時必要的
  * （序列已還原成文字，看不到合成結果），關掉就沒得看了。
  */
 let charPopEnabled = true;
@@ -585,14 +585,14 @@ function renderPop() {
     });
     popParts.appendChild(b);
   }
-  popHint.textContent = "或者直接在文中打 ︵…︶ 構形序列。";
+  popHint.textContent = "或者直接在文中打 ︵…︶ 拼形序列。";
   placePop(st.selection.main.head);
 }
 
 /* ------------------------------------------------------------------ 建立編輯器 */
 
 const SAMPLE = [
-  "正常文字用系統字形，碰到構形序列才調用組字引擎。",
+  "正常文字用系統字形，碰到拼形序列才調用組字引擎。",
   "",
   "︵街圭日︶　︵街行月︶　︵寶貝山︶　︵清青日︶　︵字宀口︶　︵盟明口︶　︵地也日︶　︵話舌日︶",
   "",

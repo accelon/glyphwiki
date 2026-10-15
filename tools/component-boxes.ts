@@ -181,8 +181,8 @@ export function rawClusters(strokes: { kind: number; points: number[] }[], need:
 export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure,
                                 opt?: { deep?: boolean; inkOfRef?: (parentIdx: number, strokeIx: number) => Box | null }): CompBox[] {
   /* ★★ 第 138 輪（師父的回報 ✓）：**深層框**。
-     症狀：同一個字，**IDS 版看得到 4 個子框、構形序版只有 2 個** ✗。
-     原因不是誰畫錯 ✗——`refSlotsOf()` 只回**根的引用槽** ✓，而構形序的根常常只有 2 個分量 ✓
+     症狀：同一個字，**IDS 版看得到 4 個子框、拼形序版只有 2 個** ✗。
+     原因不是誰畫錯 ✗——`refSlotsOf()` 只回**根的引用槽** ✓，而拼形序的根常常只有 2 個分量 ✓
      （`好學孔孟` 的根是 2 個 ✓），分量自己還是合字時就只算一格 ✗；
       IDS 版是把 4 個**葉**各畫一格 ✓。兩邊的「格」定義不同 ✗（一個是引用、一個是葉 ✗）。
      師父要比的是同一個東西 ✓ → `opt.deep` 讓框**遞迴到真正在畫的葉** ✓，

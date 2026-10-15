@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * probe-seq-candidates.ts — **任意 IDS → 建議構形序**的排序判準（師父第 125 輪的例子 ✓）。
+ * probe-seq-candidates.ts — **任意 IDS → 建議拼形序**的排序判準（師父第 125 輪的例子 ✓）。
  *
  * 師父要的體驗：
  *   客人輸入「`⿰木垚`」→ 系統按 IDC 左右各半畫得醜醜的 ✓ →

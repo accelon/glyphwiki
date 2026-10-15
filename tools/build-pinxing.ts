@@ -42,7 +42,10 @@ const html = `<!DOCTYPE html>
           --acc:#5b8cff; --accbg:#22304d; --fg:#e8ecf4; }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; }
-  body { font:13px/1.5 system-ui,"Segoe UI","Microsoft JhengHei",sans-serif;
+  /* 「--chip」＝部件清單的方格大小（**唯一的尺寸來源** ✓：「.mini.comp」與
+     「.side」的最小寬度都吃它 ✓）。窄螢幕只改這一個值 ✓（見下面的 media query ✓）。 */
+  body { --chip:44px;
+         font:13px/1.5 system-ui,"Segoe UI","Microsoft JhengHei",sans-serif;
          background:var(--bg); color:var(--fg); overflow-x:hidden; }
 
   /* 手機豎版優先：一欄，由上到下就是操作的順序。整體盡量緊湊。 */
@@ -50,14 +53,19 @@ const html = `<!DOCTYPE html>
   /* ★ 寬螢幕把卡片放寬 ✓——大字（200）＋部件清單＋建議並排（200）才排得下 ✓，
      右邊也不會空一大片 ✓（手機仍維持 460 ✓）。 */
   @media (min-width:760px) { .wrap { max-width:720px; } }
-  header.top { background:var(--card); border:1px solid var(--line); border-radius:10px;
+  /* 「position:relative」＝ 讓「運算子用法」那個浮層**貼在這張卡的下方** ✓
+     （貼在 .seqrow 下方會蓋住同一張卡裡的「筆劃」滑桿 ✗，看起來像壞掉 ✓）。 */
+  header.top { position:relative; background:var(--card); border:1px solid var(--line); border-radius:10px;
                padding:6px 8px; margin-bottom:6px; }
   header.top b { color:var(--fg); font-size:15px; letter-spacing:.5px; }
 
   /* 浮層提示（toast）：貼在輸入區正下方，**absolute 所以不佔高度**——
-     訊息出現／消失都不會推動下面的版面（使用者：以免造成畫面晃動）。 */
+     訊息出現／消失都不會推動下面的版面（使用者：以免造成畫面晃動）。
+     ⚠ 底色先給一條**舊瀏覽器認得**的實色 ✓：微信 X5／iOS 16.2 以前不認「color-mix()」✗，
+        那一條會被整條丟掉 ✗ → 浮層變透明、字疊在下面的內容上 ✗。 */
   .toast { position:absolute; left:0; right:0; top:calc(100% + 3px); z-index:20;
            display:none; padding:4px 8px; border-radius:6px; font-size:11px; line-height:1.5;
+           background:#101216;
            background:color-mix(in srgb, var(--card) 70%, #000);
            border:1px solid var(--line); box-shadow:0 6px 16px rgba(0,0,0,.35);
            white-space:normal; pointer-events:none; }
@@ -96,7 +104,7 @@ const html = `<!DOCTYPE html>
   #saveSeq.del .icoSave { display:none; }
   #saveSeq.del .icoDel { display:block; }
   #saveSeq.del { color:#ff8a8a; }
-  /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的構形序時才出現 ✓） */
+  /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的拼形序時才出現 ✓） */
   #wand { font-size:20px; line-height:1; }
   /* ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
      「.iconbtn」有「display:flex」，所以「[hidden]」單獨是**沒有用的** ✗。
@@ -119,8 +127,8 @@ const html = `<!DOCTYPE html>
   #boxMode { font-size:12px; padding:4px 8px; }
 
   /* ---- 2. 大字（左）＋ 部件清單（右，豎排、靠右） ----
-     flex-wrap ＋ 大字的 min-width 是**防重疊**的保險：萬一視窗真的不夠寬
-     （大字 200 ＋ 右欄最少 ~50），右欄會整塊換到下一行，不會壓到大字。 */
+     flex-wrap ＋ **部件清單的最小寬度**是防重疊的保險：萬一視窗真的不夠寬，
+     右欄會整塊換到下一行，不會壓到大字。 */
   .stagewrap { display:flex; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; gap:8px; }
   /* ★ 排序：**大字 → 部件清單 →（建議並排）** ✓——
      建議並排（#sugWrap）是 200×200 的大方塊，擠在中間會把部件清單推到**大字下方** ✗
@@ -128,20 +136,29 @@ const html = `<!DOCTYPE html>
   .stagewrap .stage { order:0; }
   .side { order:1; }
   .stagewrap .cells { order:2; }
+  /* ★ 師父 2026-10-16：**大字的空間優先** ✓——大字永遠是 200×200，
+     窄螢幕**不要**把它縮小 ✗（縮小＝主角讓位給旁邊的清單 ✗）；
+     不夠寬的時候讓**部件清單自己換到下一行** ✓（flex-wrap 會做 ✓）。
+     ⚠ 以前在 <=430px 把「.stage」縮成 150 ✗，想省空間，結果是
+        「大字的每一層都還是 200」→ 溢出自己的框、壓到部件清單上 ✗（見下面每一層的註解 ✓）。 */
   .stage { position:relative; flex:none; width:200px; height:200px; color:var(--fg);
            border:1px dashed var(--line); border-radius:4px; }
   /* ★ 師父 2026-10-15：**部件清單要緊湊**——原本是**豎排單欄** ✗，
      部件一多就變成一條長柱、右邊卻空著一大片 ✗。
-     改成**吃滿右邊剩下的寬度、自動換行** ✓（左起排、靠大字那一側開始排 ✓）。 */
-  .side { flex:1 1 56px; min-width:56px; max-width:100%; display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; }
+     改成**吃滿右邊剩下的寬度、自動換行** ✓（左起排、靠大字那一側開始排 ✓）。
+     ★ 2026-10-16：最小寬度＝**放得下三個方格** ✓（「--chip」跟著手機大小走 ✓）——
+     分不到三個方格就**整塊換到下一行、吃滿整寬** ✓，不要變成一格一列的長柱 ✗
+     （師父：「部件清單占位太大」✓）。 */
+  .side { flex:1 1 calc(var(--chip) * 3 + 8px); min-width:calc(var(--chip) * 3 + 8px); max-width:100%;
+          display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; }
   .sidecap { font-size:11px; color:var(--mut); line-height:1.4; }
   /* 部件清單：方形按鈕（KAGE 字形）**自動換行、填滿可用寬度** ✓（緊湊 ✓）。
-     手機太窄時（<=430px）再縮小大字與按鈕，避免壓到大字。 */
+     「--chip」是唯一的尺寸來源 ✓（窄螢幕只改這一個值 ✓）。 */
   .chips { display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start;
            justify-content:flex-start; width:100%; }
   .mini.comp { position:relative; display:flex; align-items:center; justify-content:center;
-               width:44px; height:44px; flex:none; border:1px solid var(--line); border-radius:6px;
-               background:var(--card); color:var(--fg); cursor:pointer; }
+               width:var(--chip); height:var(--chip); flex:none; border:1px solid var(--line);
+               border-radius:6px; background:var(--card); color:var(--fg); cursor:pointer; }
   .mini.comp:hover { border-color:var(--c); box-shadow:0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
   .mini.comp.on { border-color:var(--c); background:color-mix(in srgb, var(--c) 22%, var(--card)); }
   /* 滑過大字的框時，對應的那一格也亮 ✓（見 pinxing-page.js 的 hoverChip ✓） */
@@ -155,27 +172,29 @@ const html = `<!DOCTYPE html>
      「選了卻永遠換不掉」的死路（回饋原文：如同搞不定，就不要讓客人在部件清單選擇）。
      兩者的差別：這一種**有碼位**（虛線改成點線、標籤是「—」）。 */
   .mini.comp.stuck { border-style:dotted; }
-  .mini.comp .g { width:36px; height:36px; display:block; }
+  .mini.comp .g { width:calc(var(--chip) - 8px); height:calc(var(--chip) - 8px); display:block; }
   .mini.comp .g svg { width:100%; height:100%; display:block; }
   .mini.comp .ids { position:absolute; right:1px; bottom:0; font-size:8px; color:var(--mut);
                     font-family:ui-monospace,monospace; }
   @media (max-width:430px) {
-    /* 手機過窄：大字縮到 150、按鈕縮到 38（清單本來就會自動換行 ✓），不與大字重疊 */
-    .stage, .stage .boxlayer, .stage > svg { width:150px; height:150px; }
-    .mini.comp { width:38px; height:38px; }
-    .mini.comp .g { width:31px; height:31px; }
+    /* 手機過窄：**只把方格縮小** ✓（大字不動 ✗）——清單會自己換行、真的擠不下就整塊換到下一行 ✓ */
+    body { --chip:38px; }
   }
-  .stage > svg { position:absolute; left:0; top:0; width:200px; height:200px; display:block; }
+  /* ★ 2026-10-16：**大字裡的每一層都跟著「.stage」的大小** ✓（100% ✓）。
+     ⚠ **不要**在這些規則裡寫死 200px ✗：寫死的規則在檔案裡比 media query 更後面，
+        會**蓋掉**窄螢幕的尺寸 ✗ → 大字溢出自己的框、壓到右邊的部件清單上 ✗
+        （師父 2026-10-16 回報的「部件清單與大字重疊」就是這個 ✓）。 */
+  .stage > svg { position:absolute; left:0; top:0; width:100%; height:100%; display:block; }
   .stage .ph { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
                text-align:center; color:var(--mut); font-size:12px; line-height:1.7; }
   /* 部件框疊在大字上（座標系一樣，都是 viewBox 0 0 200 200，不必換算）。
      框是**獨立一層 svg.boxlayer**，絕對定位疊上去——
      g 單獨塞進 HTML 會被解析器丟掉（踩過：大字的框整個不見）。 */
-  .stage .boxlayer { position:absolute; left:0; top:0; width:200px; height:200px; }
+  .stage .boxlayer { position:absolute; left:0; top:0; width:100%; height:100%; }
   /* ★ 選中的部件：**筆劃染成框色**的一層 ✓（師父 2026-10-15）。
      文件序在 boxlayer **之前**＝畫在框的下面 ✓（框線不會被蓋掉 ✓）；
      不吃滑鼠事件 ✓（點框還是由框層決定 ✓）。 */
-  .stage .hllayer { position:absolute; left:0; top:0; width:200px; height:200px; pointer-events:none; }
+  .stage .hllayer { position:absolute; left:0; top:0; width:100%; height:100%; pointer-events:none; }
   /* ★ 師父 2026-10-16：「字框：隱」時框**只是看不見，還是有作用** ✓——
      在大字上滑過／點下去，照樣選到那一格、把它的筆劃塗成那一格的顏色 ✓。
      所以要留著框層（透明 ＋ 自己吃滑鼠事件 ✓），不是整層拿掉 ✗。 */
@@ -194,6 +213,22 @@ const html = `<!DOCTYPE html>
      ⚠ 同樣要為「.sub」再寫一份，否則會被「.cbox.sub」蓋掉 ✗。 */
   .cbox.hover { fill:color-mix(in srgb, var(--c) 24%, transparent); stroke-width:2.2; }
   .cbox.sub.hover { stroke-dasharray:none; stroke-width:2; fill-opacity:.42; }
+  /* ★ 2026-10-16：**不認「color-mix()」的瀏覽器要活下來** ✓——
+     微信內建的 X5（Chromium 111 以前 ✓）與 iOS 16.2 以前都還不認它 ✗，
+     而被丟掉的那一條是「fill」✗ → 退回**預設的黑** ✗＝字框變成一塊黑板、把大字整塊蓋掉 ✗。
+     純色 ＋「fill-opacity」是新舊都認的 ✓，效果與 color-mix 那一條**完全一樣** ✓
+     （「color-mix(in srgb, C 11%, transparent)」＝ C 帶 11% 的 alpha ✓；
+      孫框的 .22／.42／.55 是**再乘上去**的倍率 ✓，所以這裡的值要乘進去 ✓）。 */
+  @supports not (fill: color-mix(in srgb, red 11%, transparent)) {
+    .cbox { fill:var(--c); fill-opacity:.11; }
+    .cbox:hover { fill-opacity:.24; }
+    .cbox.on { fill-opacity:.30; }
+    .cbox.sub { fill-opacity:.024; }
+    .cbox.sub:hover { fill-opacity:.046; }
+    .cbox.sub.on { fill-opacity:.061; }
+    .cbox.hover { fill-opacity:.24; }
+    .cbox.sub.hover { fill-opacity:.046; }
+  }
 
   /* ---- 3. 部件序列 ----
      樣式在上面（跟大字同一區塊），這裡只留兩頁共用 markup 會用到的部分。 */
@@ -218,14 +253,34 @@ const html = `<!DOCTYPE html>
   .stockcell .flag { position:absolute; margin-top:-40px; margin-left:34px; font-size:9px; color:var(--mut); }
   .delStock { padding:2px 6px; font-size:11px; }
 
-  /* ---- 7. 候選（非法序列 → 部件搜尋） ---- */
+  /* ---- 7. 候選（非法序列 → 部件搜尋） ----
+     ★ 師父 2026-10-16：「**候選字依 unicode 分區使用不同顏色，配色同 glyph-browser.html**」✓
+     顏色走「--bc」（由 JS 寫進每一格 ✓）、字形「fill:currentColor」✓——
+     跟字集瀏覽頁的格子**同一個做法** ✓（那裡的「.cell」也是「color:var(--bc)」✓）。
+     ⚠ 調色盤只有一份：「tools/glyph-common-page.js」的「BLOCKS」／「colorOfCp()」✓。
+     ⚠ 只有**候選字**上區塊色 ✓（「.cell.cand」✓）：部件清單用的是**框色**（「--c」✓），
+        兩套色系刻意不同，才分得出「這個顏色在講區塊還是講第幾個部件」✓。 */
   .cands { display:grid; grid-template-columns:repeat(auto-fill,minmax(56px,1fr)); gap:4px; }
   .cell { border:1px solid var(--line); border-radius:5px; text-align:center; cursor:pointer;
           padding:1px; overflow:hidden; background:var(--card); }
   .cell:hover { border-color:var(--acc); }
   .cell .g { height:52px; color:var(--fg); }
   .cell .g svg { width:100%; height:100%; display:block; }
-  .cell .c { font-size:9px; opacity:.6; font-family:ui-monospace,Consolas,monospace; }
+  .cell .c { font-size:9px; font-family:ui-monospace,Consolas,monospace; }
+  /* ⚠ 碼位的**淡化**從「.c」搬到裡面的「.cp」✓：小標要和碼位同一行（左下角 ✓），
+     但小標要**醒目**（不可以跟著淡化 ✗）——「opacity」會蓋住整個子樹，救不回來 ✗。 */
+  .cell .c .cp { opacity:.6; }
+  /* ★ 師父 2026-10-16：碼位**左下角**標「這個字屬於哪一區」✓——
+     Extension＝**英文字母**（A..I ✓）、相容區＝「相」「補」✓、**基本區 2 萬字不標** ✓
+     （「mark:""」✓，見共用層的「BLOCKS」✓）。
+     醒目＝**粗體 Arial** ＋ **自己那一區的顏色**（「--bc」✓，跟字形同色 ✓）＋ 比碼位大一級 ✓。 */
+  .cell .c .blkmark { font-family:Arial,Helvetica,sans-serif; font-weight:700; font-size:11px;
+                      line-height:1; color:var(--bc); margin-right:3px; }
+  /* 候選字：字形與碼位（「.c」繼承 ✓）都用**自己那一格的區塊色** ✓、邊框也染同一色 ✓
+     （邊框那條「color-mix」舊瀏覽器不認 ✗ → 整條被丟掉 → 留著上面「.cell」的「var(--line)」✓）。 */
+  .cell.cand { color:var(--bc); border-color:color-mix(in srgb, var(--bc) 26%, var(--line)); }
+  .cell.cand:hover { border-color:var(--bc); }
+  .cell.cand .g { color:var(--bc); }
   @media (max-width:400px) { .cands { grid-template-columns:repeat(auto-fill,minmax(48px,1fr)); } }
 
   /* ---- 8. 建議更好的基字（第 111～112 輪）----
@@ -260,6 +315,27 @@ const html = `<!DOCTYPE html>
   .credits { margin:8px 2px 0; font-size:11px; line-height:1.7; color:var(--mut); text-align:center; }
   .credits a { color:var(--acc); text-decoration:none; }
   .credits a:hover { text-decoration:underline; }
+  /* ★ 師父 2026-10-16：**微信的保險** ✓——微信內建瀏覽器（舊 X5／iOS 16.4 以前）
+     不一定解得開這包字庫 ✗。純 JS 的後備已經補上了 ✓（見 glyph-common-page.js ✓），
+     但**沒辦法在真的微信裡驗** ✗，所以最底部留一行白話的指示 ✓（師父指定的字，一字不改 ✓）。 */
+  .wechat { margin:6px 2px 0; font-size:11px; line-height:1.7; color:var(--mut); text-align:center; }
+
+  /* ★ 師父 2026-10-16：「**部件檢字狀態時，要顯示運算子的用法**（滑鼠 hover 到「部件檢字」就 popup）」✓。
+     浮層＝**absolute** ✓（跟 .toast 一樣不佔高度、不會推動版面 ✓）；
+     ⚠ 它掛在 **「header.top」**底下（不是「.seqrow」✗）——貼在輸入區那一列的下方會**蓋住同一張卡裡的
+        「筆劃」滑桿** ✗，看起來像壞掉 ✓；貼在整張卡的下方＝像一張說明卡掛在工具列下面 ✓。
+     「z-index」比 .toast（20 ✓）高 ✓，兩個一起出現時，客人在讀的這一份在上面 ✓。
+     ⚠ 只有**部件檢字**那一個狀態會開 ✓（見 pinxing-page.js 的「showLabelHelp()」✓）——
+        空白與拼形序時滑過去不該彈東西出來 ✗（那時沒有運算子可用 ✓）。 */
+  .lblhelp { position:absolute; left:8px; top:calc(100% - 2px); z-index:40; display:none;
+             max-width:min(320px, 92vw); padding:8px 10px; border-radius:8px;
+             font-size:12px; line-height:1.9; text-align:left; color:var(--fg);
+             background:var(--card); border:1px solid var(--line);
+             box-shadow:0 6px 20px rgba(0,0,0,.35); }
+  .lblhelp.on { display:block; }
+  /* 標籤一律用問號游標 ✓＝「這裡有說明可以滑」✓（每一種狀態都有 hover 說明 ✓：
+     部件檢字＝運算子用法 ✓、其餘＝拼形序的專利依據 ✓）。 */
+  #seqlbl { cursor:help; }
 </style>
 </head>
 <body>
@@ -272,10 +348,10 @@ const html = `<!DOCTYPE html>
       <span class="seqlbl brand" id="seqlbl">剎那拼形</span>
       <input id="seq" type="text" autocapitalize="off" autocorrect="off" spellcheck="false"
              placeholder="輸入任何字或拼形式">
-      <!-- ★ 師父第 136 輪：**魔術棒 🪄** —— 有建議的構形序時才出現 ✓；
+      <!-- ★ 師父第 136 輪：**魔術棒 🪄** —— 有建議的拼形序時才出現 ✓；
            點一下＝把下一個建議填進輸入區 ✓（再點換下一個 ✓）。
            DOM 位置在「存起來」（#saveSeq）的前一個 ✓（師父指定的位置 ✓）。 -->
-      <button id="wand" class="iconbtn" title="系統建議的構形序（點一下套用；再點換下一個）" hidden>🪄</button>
+      <button id="wand" class="iconbtn" title="系統建議的拼形序（點一下套用；再點換下一個）" hidden>🪄</button>
       <!-- 存起來：svg 圖示（磁片）＋ 加號；Enter 也可以存。不是合法拼形式時整顆收起 -->
       <button id="saveSeq" class="iconbtn" title="存起來（或在輸入區按 Enter）">
         <svg class="icoSave" viewBox="0 0 24 24" aria-hidden="true">
@@ -298,12 +374,18 @@ const html = `<!DOCTYPE html>
       <!-- ★ 師父 2026-10-15：**顯示中間部件** ✓——
            不勾＝只列／只框「最終組字用到的部件」✓；勾了＝連中間部件（孫框）一起 ✓。 -->
       <label class="chk" title="勾了就連中間部件一起顯示"><input type="checkbox" id="showMid"><span>中間部件</span></label>
-      <!-- ★ 師父第 124 輪：客人不會打 IDC ✓，所以要有按鈕把字**拆成構字式（IDS）** ✓ -->
-      <button id="toIds" title="把這個字拆成構字式（IDS）——看看 IDS 的等比分配與構形序差多少 ✓">拆成 IDS</button>
+      <!-- ★ 師父第 124 輪：客人不會打 IDC ✓，所以要有按鈕把字**拆成表意描述序** ✓
+           （★ 師父 2026-10-16：「構字式（IDS）」改稱「**表意描述序**」✓——標籤、tooltip、
+              人話轉寫、浮層提示一起改 ✓；按鈕上的「IDS」是國際通用簡寫，留著 ✓） -->
+      <button id="toIds" title="把這個字拆成表意描述序——看看它的等比分配與拼形序差多少 ✓">拆成 IDS</button>
       <span class="note">筆劃</span>
       <input id="wscale" type="range" min="40" max="220" step="5" value="100">
       <span class="note" id="wscaleV">100%</span>
     </div>
+    <!-- ★ 師父 2026-10-16：**檢字運算子的用法** ✓——只有「部件檢字」時滑過上面的標籤才彈出來 ✓。
+         掛在「header.top」底下 ✓（貼在「.seqrow」下面會蓋住「筆劃」滑桿 ✗）。
+         內容由共用層的「searchHelpHtml()」填 ✓（與字集瀏覽頁的「運算式說明」同一份 ✓）。 -->
+    <div class="lblhelp" id="lblHelp" hidden></div>
   </header>
 
   <!-- 2. 大字（左）＋ 4. 部件序列（右，豎排） -->
@@ -346,19 +428,26 @@ const html = `<!DOCTYPE html>
     <div class="row"><span id="toBrowser" class="link" role="button" tabindex="0"></span></div>
   </div>
 
-  <!-- 7. 不是合法構形序列時：當部件搜尋，候選列在最下方 -->
+  <!-- 7. 不是合法拼形序列時：當部件搜尋，候選列在最下方 -->
   <div class="sec" id="candSec">
     <div class="cap">候選字<span class="r note" id="candNote"></span></div>
     <div class="cands" id="cands"></div>
     <div class="row"><button id="moreBtn" hidden>再看更多</button></div>
   </div>
 
-  <!-- 授權宣告（使用者指定的文字，一字不改） -->
+  <!-- 授權宣告（使用者指定的文字，一字不改）
+       ★ 師父 2026-10-16：「最下方『**拼形序依據 中国发明专利 201610984608.1 号**』
+         移到上方『構形序』的 hover 說明」✓——那一整句**搬到標籤的 hover 浮層** ✓
+         （見 pinxing-page.js 的「PATENT_LINE」✓，字一字不改 ✓）；
+         這裡只留「基於開源字庫」與微信 ✓（句子接得順，不留孤零零的標點 ✓）。 -->
   <footer class="credits">
-    基於開源字庫 Glyphwiki+Kage，拼形序依據 中国发明专利 201610984608.1 号。微信：wxx68174671
+    基於開源字庫 Glyphwiki+Kage　·　微信：wxx68174671
     <!-- ★ 師父 2026-10-15：加上**開發記錄**（同一個資料夾的 gouxingji.html ✓） -->
     <span class="devlink">　·　<a href="gouxingji.html">開發記錄</a></span>
   </footer>
+
+  <!-- ★ 師父 2026-10-16 指定的保險（微信內建瀏覽器）：放在**最底部的一行** ✓。 -->
+  <p class="wechat">微信打開看不到的話，用系統自帶的瀏覽器打開。</p>
 
 </div>
 
@@ -368,6 +457,30 @@ ${COMMON_SCRIPT}
 ${commonPageJs}
 ${PAGE_JS}
 
+</script>
+
+<!-- ★ 2026-10-16：**開頁看門狗** ✓——萬一這個瀏覽器連字庫都解不開（例：舊微信 ✓），
+     至少要在畫面上說清楚，而不是留一個「安靜的死頁」✗（師父：「輸入也沒有動作，
+     貌似數據沒有載入」——那時畫面上什麼都沒有 ✓）。
+     ⚠ 一定要是**獨立的一支 script** ✓：主 script 若**語法**就掛掉（舊引擎不認新語法 ✓），
+        同一支裡面的 catch 根本不會執行 ✗，只有另一支才跑得起來 ✓。
+     ⚠ 這一行**不可以出現「載入失敗」四個字** ✗——驗收（check-pinxing.ts）用這四個字
+        判斷「頁面起不來」✓，看門狗誤觸會變成假警報 ✗。 -->
+<script>
+(function () {
+  var t = setTimeout(function () {
+    if (window.__READY__) return;
+    var d = document.createElement("div");
+    d.id = "bootfail";
+    d.style.cssText = "margin:8px;padding:10px 12px;border:1px solid #ff8a8a;border-radius:8px;" +
+      "background:#2a1416;color:#ffb3b3;font:12px/1.8 system-ui,sans-serif";
+    d.innerHTML = "這個瀏覽器沒能把字庫解開。" +
+      "<br>微信打開看不到的話，用系統自帶的瀏覽器打開。";
+    document.body.insertBefore(d, document.body.firstChild);
+  }, 20000);
+  /* 頁面起得來就把它收掉 ✓（pinxing-page.js 的 .then 會呼叫 ✓）。 */
+  window.__BOOTOK__ = function () { clearTimeout(t); };
+})();
 </script>
 </body>
 </html>
@@ -382,3 +495,4 @@ console.log(`  網頁大小 ${(Buffer.byteLength(html) / 1048576).toFixed(2)} MB
 console.log(`  內嵌：kage-engine ${(Buffer.byteLength(engineSrc) / 1024).toFixed(0)} KB、` +
   `tools 模組 ${(Buffer.byteLength(bundleSrc) / 1024).toFixed(1)} KB、` +
   `字形庫 base64 ${(libB64.length / 1048576).toFixed(2)} MB`);
+

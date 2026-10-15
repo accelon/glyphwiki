@@ -35,7 +35,7 @@ export const ENGINE_FILES = [
  *   lib-measure     墨跡量測
  *   box-dictionary  框字典
  *   compose-fit     引擎封裝、墨跡、讓位、normalizeSvg
- *   free-compose    引用樹（refSlotsOf）、構形序列、位置搜尋
+ *   free-compose    引用樹（refSlotsOf）、拼形序列、位置搜尋
  *   component-boxes 部件框（componentBoxes／inkBoundsOfPolys）——兩頁都要
  *   stroke-overlap  跨部件距離（編輯器與 pinxing 用）
  *   ids-glyph       **從 IDS 產生字形**（`glyph-by-ids.md` 的主模塊 ✓）——

@@ -8,13 +8,13 @@
  * 使用——與 `lib-format.ts` 一樣的理由：只有一份實作，不會各說各話。
  *
  * ---------------------------------------------------------------------------
- * 一、構形序列的語意（依 `format.md`「進階任務 2」的定義）
+ * 一、拼形序列的語意（依 `format.md`「進階任務 2」的定義）
  * ---------------------------------------------------------------------------
  *   `峰夆電雨水`
  *     ＝ 峰 中的「夆」替換為「電雨水」
  *     ＝ 而「電雨水」＝ 電 上方的「雨」改為「水」
  *
- *   規則：**base + 舊部件 + 新內容…**，而「新內容」本身可以再是一個構形序列
+ *   規則：**base + 舊部件 + 新內容…**，而「新內容」本身可以再是一個拼形序列
  *   （遞歸）。所以：
  *     `街圭舞`     → 街 的 圭 → 舞
  *     `街行彳舞亍` → 街 的 行 →（彳舞亍）；而 彳舞亍 是「一串原始部件」
@@ -26,12 +26,12 @@
  * ---------------------------------------------------------------------------
  * 二、內文語法與三條護欄（施工單 §三）
  * ---------------------------------------------------------------------------
- *   構形序列寫在 `︵` U+FE35 / `︶` U+FE36 之間。它們是合法 Unicode 字元
+ *   拼形序列寫在 `︵` U+FE35 / `︶` U+FE36 之間。它們是合法 Unicode 字元
  *   （豎排古籍本來就可能出現），所以：
  *     1. 必須成對，否則不觸發
  *     2. 不跨行
  *     3. 長度上限 MAX_PARTS 個部件
- *   三條都成立才當成構形序列，否則原樣顯示純文字。
+ *   三條都成立才當成拼形序列，否則原樣顯示純文字。
  */
 import {
   toKageData, isVariantOfCp, indexOfChar, charOf, displayName, keyOfIdx, keyOf,
@@ -41,10 +41,10 @@ import type { Library, Glyph, Stroke } from "./lib-format.ts";
 import { normalizeSvg, ensureEngine, composeFit, inkOfRefInParent, refitBand, inkAlignedBox } from "./compose-fit.ts";
 import type { Lib } from "./compose-fit.ts";
 
-/** 構形序列的定界符（豎排括號） */
+/** 拼形序列的定界符（豎排括號） */
 export const OPEN = "\uFE35";
 export const CLOSE = "\uFE36";
-/** 一個構形序列最多幾個部件（護欄 3） */
+/** 一個拼形序列最多幾個部件（護欄 3） */
 export const MAX_PARTS = 12;
 /** 遞歸深度上限（護欄：避免病態輸入） */
 export const MAX_DEPTH = 6;
@@ -180,7 +180,7 @@ function resolveNew(
     return { ok: true, lib: rec.lib, idx: rec.targetIdx, log: rec.log };
   }
   if (!allowRow || o.rowFallback === false) {
-    return { ok: false, error: rec.ok ? `「${expr}」讀不成構形序列` : rec.error };
+    return { ok: false, error: rec.ok ? `「${expr}」讀不成拼形序列` : rec.error };
   }
   const row = buildRow(L, chars);
   if (!row.ok) return { ok: false, error: row.error };
@@ -188,7 +188,7 @@ function resolveNew(
 }
 
 /**
- * 求值一個構形序列（遞歸）。
+ * 求值一個拼形序列（遞歸）。
  *
  * 步驟：
  *   1. 只有一個字 → 就是該字本身
@@ -203,13 +203,13 @@ function resolveNew(
 export function evalSeq(
   L: Library, expr: string, o: SeqOptions = {}, depth = 0,
 ): SeqResult {
-  if (depth > MAX_DEPTH) return { ok: false, error: "構形序列遞歸過深" };
+  if (depth > MAX_DEPTH) return { ok: false, error: "拼形序列遞歸過深" };
   const chars = Array.from(expr);
-  if (chars.length === 0) return { ok: false, error: "空的構形序列" };
+  if (chars.length === 0) return { ok: false, error: "空的拼形序列" };
   // 護欄 3：長度上限。放在求值器裡，不只靠內文掃描——
   // 直接呼叫 evalSeq 的路徑（③ 字形檢視的輸入框）也要擋。
   if (chars.length > MAX_PARTS) {
-    return { ok: false, error: `構形序列過長（${chars.length} 個部件 > 上限 ${MAX_PARTS}）` };
+    return { ok: false, error: `拼形序列過長（${chars.length} 個部件 > 上限 ${MAX_PARTS}）` };
   }
   if (chars.length === 1) {
     const i = idxOf(L, chars[0]!);
@@ -832,7 +832,7 @@ export interface TextHit {
 export type Segment = TextHit | SeqHit;
 
 /**
- * 掃描一段文字，切出「純文字」與「構形序列」。
+ * 掃描一段文字，切出「純文字」與「拼形序列」。
  *
  * 掃描是從左到右的：遇到第一個 `︵` 就往下找 `︶`（且不跨行），
  * 中間的內容通過三條護欄才當成序列，否則整段（含括號）當純文字。
@@ -931,7 +931,7 @@ export function createSvgRenderer(L: Library) {
     return memo(key, () => build(r.lib, r.targetIdx));
   }
 
-  /** 直接給一個構形序列（含 ︵︶ 掃描時的選項） */
+  /** 直接給一個拼形序列（含 ︵︶ 掃描時的選項） */
   function svgOfSeq(expr: string, o: SeqOptions = {}): { svg: string | null; result: SeqResult } {
     const r = evalSeq(L, expr, o);
     return { svg: svgForResult(r), result: r };
@@ -1395,7 +1395,7 @@ export interface Assembly {
  * 這是解決「𩀨 不在庫中」的關鍵一步：
  *   𩀨 ＝ ⿰隹從  →  assemble(lib, "⿰", ["隹", "從"])
  * 造出來的字形有正常的引用框，所以**可以再被 composeFit 當成替換目標**——
- * 也就是說它與庫裡既有的字地位相同，能直接餵進構形序列。
+ * 也就是說它與庫裡既有的字地位相同，能直接餵進拼形序列。
  */
 export function assembleGlyph(L: Library, kind: Layout, chars: string[]): Assembly | { ok: false; error: string } {
   if (!chars.length) return { ok: false, error: "沒有部件" };
@@ -1426,7 +1426,7 @@ export interface AssembledResult {
 /**
  * 「庫裡沒有這個字」時的全套流程：**先造、再用**。
  *
- * 把構形序列裡的某個「不在庫中」的目標，先用 IDS／版面運算子造出來，
+ * 把拼形序列裡的某個「不在庫中」的目標，先用 IDS／版面運算子造出來，
  * 插進庫尾，然後照原本的替換流程餵給 `applyReplace`。
  *
  * 例：`邏羅寶貝𩀨…` 需要 𩀨，而 𩀨 ＝ ⿰隹從（IDS 資料庫），於是：

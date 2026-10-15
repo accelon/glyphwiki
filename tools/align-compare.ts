@@ -29,7 +29,7 @@
  * ## 兩個地雷（徒兒都踩過）
  *
  * ① `parseSeqTree()` 只吃 **IDS 算子**（`⿰`／`⿱`…）。
- *    構形序（`邏羅寶貝…`）**沒有算子** → 它會「解析失敗」、對位永遠 0。
+ *    拼形序（`邏羅寶貝…`）**沒有算子** → 它會「解析失敗」、對位永遠 0。
  *    ✅ 正解：**基字一棵葉**，再依序把 `pairs` 的 `old` 換成 `new`
  *      （`replaceLeaf()`，見 `seqTreeOf()`）。
  * ② 不要用「整個字的骨架外框」當葉的位置（六個葉會全部落在同一點）。
@@ -56,7 +56,7 @@ const arg = (n: string, d?: string) => { const i = argv.indexOf(n); return i >= 
 const { lib } = loadLibrary(resolve(ROOT, "out/lib-cjk-all.bin.gz"), { withNames: true });
 ensureEngine();
 
-/** ★ 構形序 → 樹 ✓（基字 ＋ 逐對替換 ✓）——**不要**用 `parseSeqTree` ✗（它只吃 IDS 算子 ✓）。 */
+/** ★ 拼形序 → 樹 ✓（基字 ＋ 逐對替換 ✓）——**不要**用 `parseSeqTree` ✗（它只吃 IDS 算子 ✓）。 */
 export function seqTreeOf(seq: string): SeqNode {
   const cs = Array.from(seq);
   if (!cs.length) return { ch: "" };

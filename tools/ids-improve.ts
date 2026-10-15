@@ -6,7 +6,7 @@
  *
  *   A **古法**：按 IDC 等比分配 ✗（醜 ✓、但**筆劃不交錯** ✓——那是 `ids-glyph.ts` 的契約 ✓）
  *   B **真字**：如果這個 IDS 就是某個真字 ✓，把真字畫出來當「天花板」✓
- *   C **今法**：把 IDS 換成**構形序** ✓（`seq-search.ts` **當場算**的 ✓）→ 點一下就變美 ✓
+ *   C **今法**：把 IDS 換成**拼形序** ✓（`seq-search.ts` **當場算**的 ✓）→ 點一下就變美 ✓
  *
  * 三格都算**兩兩的墨跡重疊（IoU）** ✓，讓「改善」有數字 ✓（不是靠感覺 ✓）。
  *
@@ -380,13 +380,13 @@ function runCase(IDS: string, forcedSeq: string | undefined, forcedChar: string 
     };
   }
   /* C 今法 ✓ */
-  let cellC: Cell = { title: "C 今法（構形序）", sub: SEQ ? "✗ 組不出來：" + SEQ : "✗ 系統算不出來", svg: "", mask: null };
+  let cellC: Cell = { title: "C 今法（拼形序）", sub: SEQ ? "✗ 組不出來：" + SEQ : "✗ 系統算不出來", svg: "", mask: null };
   if (SEQ) {
     try {
       const q = evalSeq(lib, SEQ, {});
       if (q && q.ok) {
         cellC = {
-          title: "C 今法（構形序）",
+          title: "C 今法（拼形序）",
           sub: SEQ + "　" + ((Array.from(SEQ).length - 1) / 2) + " 步 ✓（" + src + "）",
           svg: svgOf(q.lib, q.targetIdx), mask: maskOf(q.lib, q.targetIdx),
         };

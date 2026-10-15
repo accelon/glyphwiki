@@ -185,7 +185,7 @@ console.log("\n5. 新舊的差別（師父要的「今法對古法的改善」�
   } else bad("盟的新舊對照造不出來");
 }
 
-console.log("\n6. IDS → **構形序**（今法 ✓）：工具 `tools/seq-search.ts`");
+console.log("\n6. IDS → **拼形序**（今法 ✓）：工具 `tools/seq-search.ts`");
 {
   /* ⚠ 這一支**不進 `verify`** ✓（跑一次要 10 秒以上 ✗），但契約要在這裡釘住 ✓：
      「`⿰木垚` 要生得出頁面版的答案 `桂圭垚`」✓——

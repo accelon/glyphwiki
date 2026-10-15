@@ -389,7 +389,7 @@ if (import.meta.main) {
     const { evalSeq } = await import("./free-compose.ts");
     try {
       const q = evalSeq(lib, seq!, {});
-      if (q && q.ok) cells.push({ name: seq!, svg: svgOf(q.lib, q.targetIdx), note: "構形序（美）" });
+      if (q && q.ok) cells.push({ name: seq!, svg: svgOf(q.lib, q.targetIdx), note: "拼形序（美）" });
       else cells.push({ name: seq!, svg: "", note: "組不出來 ✗" });
     } catch (e) { cells.push({ name: seq!, svg: "", note: "組不出來 ✗" }); }
   }

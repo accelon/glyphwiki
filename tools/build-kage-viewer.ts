@@ -139,7 +139,7 @@ const html = `<!DOCTYPE html>
 <h1>KAGE 字形檢視</h1>
 
 <div class="bar">
-  <input id="q" type="text" value="${DEMO}" placeholder="輸入漢字，例如：漢字盟寶；或構形序列 寶缶支" autofocus>
+  <input id="q" type="text" value="${DEMO}" placeholder="輸入漢字，例如：漢字盟寶；或拼形序列 寶缶支" autofocus>
   <label>每字 <input id="size" type="number" min="32" max="600" value="200" step="16"> px</label>
   <label><input id="fill" type="checkbox" checked> 填色</label>
   <button id="go">顯示</button>

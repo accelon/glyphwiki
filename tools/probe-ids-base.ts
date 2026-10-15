@@ -7,7 +7,7 @@
  * 這一問把「擬合」變成**精確查詢** ✓：
  *   · 目標的**運算子骨架**（例 `⿰ · ⿳ · ⿰ · ·`）就是槽位結構 ✓
  *   · 部件可以換掉 ✓、**骨架不能變** ✓ → 拿骨架去 `ids/ids_lv1.txt` 精確比對 ✓
- *   · 骨架相同 ⇒ **葉序一一對應** ✓ → 構形序就是把第 i 個葉換成目標的第 i 個葉 ✓
+ *   · 骨架相同 ⇒ **葉序一一對應** ✓ → 拼形序就是把第 i 個葉換成目標的第 i 個葉 ✓
  *     （不必再猜佈局、也不必模板比對 ✓✓——這是本輪最大的收穫 ✓）
  *
  * 用法:
@@ -118,7 +118,7 @@ cands.sort((a, b) => a.strokes - b.strokes ||
   (isBmp(b.cp) ? 1 : 0) - (isBmp(a.cp) ? 1 : 0) || a.cp - b.cp);
 console.log(`骨架相同（${targetSkel}）的字：**${sameSkel} 個** ✓（其中字庫畫得出來的 ${cands.length} 個）`);
 
-/* ---------------- 產構形序：第 i 個葉 → 目標第 i 個葉 ✓ ---------------- */
+/* ---------------- 產拼形序：第 i 個葉 → 目標第 i 個葉 ✓ ---------------- */
 interface Fit { cp: number; seq: string; v: number; svg: string; pairs: string }
 const fits: Fit[] = [];
 let img: Uint8Array | null = null;
@@ -192,7 +192,7 @@ for (const f of fits.slice(0, TOP)) {
     `\n         換：${f.pairs}`);
 }
 if (fits.length) {
-  console.log(`\n★ 最佳基字：${hex(fits[0]!.cp)} ${ch(fits[0]!.cp)}　構形序：${fits[0]!.seq}` +
+  console.log(`\n★ 最佳基字：${hex(fits[0]!.cp)} ${ch(fits[0]!.cp)}　拼形序：${fits[0]!.seq}` +
     (img ? `　IoU ${fits[0]!.v.toFixed(3)}` : ""));
   /* 並排圖（原圖 ＋ 前三名 ✓） */
   const cells = fits.slice(0, 3).map((f) => `<div class="c"><div class="g">${f.svg}</div><div>${hex(f.cp)} ${ch(f.cp)}（IoU ${f.v.toFixed(3)}）</div></div>`).join("");

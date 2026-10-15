@@ -26,7 +26,7 @@ KAGE 是為**視覺組合**設計的，不是為**結構描述**設計的。這�
 
 1. **把結構資訊與描繪資訊合而為一**。GlyphWiki 只管字形怎麼畫，`unicode-cjk-ids` 只管字怎麼拆，兩邊不一致。合起來之後才能「用部件搜尋漢字」。
 2. **做一個精簡、可離線的字形庫**。原始 dump 291 MB，目標是壓到可以 base64 塞進單一 HTML。
-3. **支援自由組字**。用「構形序列」表達式，以字形庫為基礎產生 Unicode 未定義的新字形。
+3. **支援自由組字**。用「拼形序列」表達式，以字形庫為基礎產生 Unicode 未定義的新字形。
    例：`寶缶支` ＝ 把「寶」裡的「缶」換成「支」，框不變。
    可遞歸：`峰夆電雨水` ＝ 「峰」的「夆」換成「電雨水」，「電雨水」＝「電」的「雨」換成「水」。
    最著名的驗收案例是 holy grail：`邏羅寶貝𩀨從䞃致招`。
@@ -38,8 +38,8 @@ KAGE 是為**視覺組合**設計的，不是為**結構描述**設計的。這�
 | `out/lib-cjk-all.bin(.gz)` | 全部 Unicode CJK 漢字區塊的字形庫（12 個區塊、98,701 個碼位字、191,727 個字形） |
 | `out/glyph-browser.html` | **字集瀏覽頁**（BabelMap 風格）：列碼位、看字形、用部件反查、可堆疊的詳細卡 |
 | `out/kage-viewer.html` | 字形檢視頁（只做檢視，**不含編輯器功能**） |
-| `out/codemirror-kage.html` | 自由組字編輯器（CodeMirror 6，文中構形序列就地換成 SVG） |
-| `tools/free-compose.ts` | 構形序列的語法層（Node 與瀏覽器共用同一份原文） |
+| `out/codemirror-kage.html` | 自由組字編輯器（CodeMirror 6，文中拼形序列就地換成 SVG） |
+| `tools/free-compose.ts` | 拼形序列的語法層（Node 與瀏覽器共用同一份原文） |
 
 ---
 
@@ -169,7 +169,7 @@ GlyphWiki 有兩個結構性缺陷，本專案花了很多力氣繞過：
 **三個「唯一實作」的約定**（重要，不要打破）：
 
 - `tools/lib-format.ts` 是**唯一**的解碼實作。它不得引入任何 Node/Bun 專屬模組（無 `fs`、無 sqlite），因為它同時被 Node CLI 與網頁內嵌使用。**絕對不要手抄第二份解碼邏輯**——曾經發生過，結果兩邊不同步、互相矛盾。
-- `tools/free-compose.ts` 同樣的理由，是構形序列語意的唯一實作。
+- `tools/free-compose.ts` 同樣的理由，是拼形序列語意的唯一實作。
 - 網頁產生器用 `Bun.Transpiler` 把這些 `.ts` 的原文去型別、去 `export`、去 CLI 段，內嵌進 HTML。同一份原始碼，只是換個地方跑。
 
 ---
@@ -279,7 +279,7 @@ const j = indexOfCodePoint(lib, 0x29028);  // 𩀨（Ext B）
 | 指令 | 驗什麼 |
 |---|---|
 | `bun run tools/check-lib-compat.ts` | **格式回歸**：把舊版 `findGlyphIndex` 的演算法抄一份當基準，與新的 `indexOfCodePoint` 逐碼位比對全部碼位，確認舊字庫選出來的字形一個都不差。另含「家族必須落在 12 區塊內」「IDC 不得被當成字」兩條資料斷言。 |
-| `bun run tools/free-compose-test.ts` | `free-compose.ts` 的**語意與護欄**：構形序列的遞歸讀法、`︵…︶` 三條護欄、部件清單、內嵌 SVG。Node 端，不需瀏覽器。 |
+| `bun run tools/free-compose-test.ts` | `free-compose.ts` 的**語意與護欄**：拼形序列的遞歸讀法、`︵…︶` 三條護欄、部件清單、內嵌 SVG。Node 端，不需瀏覽器。 |
 | `bun run tools/check-viewer.ts` | `out/kage-viewer.html`：內嵌模組能否在同一作用域編譯、解得開字庫、組得出 holy grail、用 Edge headless 真的開頁面。 |
 | `bun run tools/check-codemirror.ts` | `out/codemirror-kage.html`：CM6 bundle 掛得上、語法掃描護欄正確、headless 斷言「光標外的序列換成 SVG／光標所在的還原成純文字／浮窗出現」。 |
 | `bun run tools/check-browser.ts` | `out/glyph-browser.html`：**最大的一支（48 KB，18 個步驟）**。逐條走過三個需求 ＋ 搜尋語法（`木+` `+木` `口木` `口口` `4木日` `4` `U+XXXX`）＋ 區塊複選與排序 ＋ 詳細卡堆疊 ＋ 筆劃粗細 ＋ 配色。同樣用 Edge headless 真的跑。 |
@@ -312,7 +312,7 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 | `tools/lib-load.ts` | Node 端載入字庫的單一入口（可選載入名字對照表）。**只能在 Node 用** |
 | `tools/box-dictionary.ts` | 框字典：把差異極小的引用框聚類共用（實測淨省 15.1%） |
 | `tools/compose-fit.ts` | ★ 組字：替換部件時避免溢出造成筆劃重疊；「先沿用舊框，放不下才等比縮小置中」 |
-| `tools/free-compose.ts` | ★ 構形序列的語法層與內嵌渲染（Node 與瀏覽器共用）。**不得**引入 Node 專屬模組 |
+| `tools/free-compose.ts` | ★ 拼形序列的語法層與內嵌渲染（Node 與瀏覽器共用）。**不得**引入 Node 專屬模組 |
 | `tools/stroke-overlap.ts` | 跨部件筆劃最短距離（0 ＝ 相交）；組字品質把關 |
 | `tools/glyph-browser-page.js` | 字集瀏覽頁的頁面程式碼（`build-glyph-browser.ts` 內嵌）。**不要搬回樣板字串**（見 §9） |
 
@@ -465,8 +465,8 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 | **引用框 / box** | `kind=99` 筆段帶的 4 個數字。實際語意是「把子字形的 200×200 畫布仿射映射到這個矩形」，x/y 各自縮放 |
 | **緊框 / tight box** | 一個字形內容的實際外接矩形（去掉留白） |
 | **部件 / component** | 構成形狀的子字形 |
-| **構形序列** | 自由組字的表達式：`基字 舊部件 新內容…`，可遞歸 |
-| **基字** | 構形序列的第一個字，被替換的容器 |
+| **拼形序列** | 自由組字的表達式：`基字 舊部件 新內容…`，可遞歸 |
+| **基字** | 拼形序列的第一個字，被替換的容器 |
 | **IDS** | Ideographic Description Sequence，Unicode 的漢字結構描述（`⿰木口`）。本專案只用它做**建置期的鷹架** |
 | **IDC** | Ideographic Description Character，IDS 的算子（U+2FF0–U+2FFB：⿰⿱⿸…）。**不是漢字**，不該出現在字集裡 |
 | **holy grail** | 專案的極限驗收案例：`邏羅寶貝𩀨從䞃致招`（招財進寶的合體字）。`𩀨`（U+29028）在 Ext B，是這條序列的關鍵 |

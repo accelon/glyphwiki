@@ -14,7 +14,7 @@
 var LIB_B64 = "__LIB_B64__";
 var LIB = null;
 
-/** ★ 師父第 136 輪：**魔術棒 🪄** 要記住「這一次的建議構形序」✓。
+/** ★ 師父第 136 輪：**魔術棒 🪄** 要記住「這一次的建議拼形序」✓。
  *  ⚠ 宣告一定要在檔頭 ✗：var 的提升只有宣告、沒有賦值 ✗——
  *    寫在檔案中段時，render() 先跑就會踩到 TDZ ✗（第 136 輪實測：整頁起不來 ✗）。 */
 var WAND = { seqs: [], ix: -1 };
@@ -35,11 +35,15 @@ function glyphIndexOf(ch) {
 }
 
 /* ---- 顏色 ----
-   `compMiniHtml()`（共用層）會呼叫 `colorOfGlyph()`，所以這一頁也要有。
-   剎那拼形不做區塊配色（那是字集瀏覽頁的事），一律用前景色；
-   真正在傳達「哪個部件是哪個」的是 `boxColor(order)`（框的顏色）。 */
-var FG = "rgb(232,236,244)";
-function colorOfGlyph() { return FG; }
+   ★ 師父 2026-10-16：「**候選字依 unicode 分區使用不同顏色，配色同 glyph-browser.html**」✓
+   → 12 個區塊的調色盤（`BLOCKS`／`blockIndexOf`／`colorOfBlock`／`colorOfCp`／
+     `colorOfGlyph`）搬進**共用層** `tools/glyph-common-page.js` ✓，兩頁同一份 ✓
+     （**不要**在這一頁再寫一份 ✗）。這一頁原本的 `colorOfGlyph` 只回前景色 ✗，已刪掉 ✓。
+
+   這一頁的顏色分工：
+     `--bc`＝**區塊色**（候選字用 ✓，跟字集瀏覽頁完全一樣 ✓）；
+     `--c` ＝**框色**（`boxColor(order)`，部件清單／大字的框用 ✓，照部件順序轉色相 ✓）。
+   兩套色系刻意不同 ✓，免得「這個顏色是在講區塊還是在講第幾個部件」分不出來 ✗。 */
 
 /* ============================ 組字結果的描繪 ============================ */
 /* free-compose 的結果常常在**另一個庫**（fork 出來的副本、庫尾多了合成字形），
@@ -236,7 +240,7 @@ function rawPartsOf(gi) {
  *  師父的連動要求靠這一條才成立 ✓；以前三處各算各的，IDS 模式就對不上 ✗。 */
 function currentBoxes() {
   if (!MAIN) return [];
-  /* 構字式（IDS）：清單就是**構字式的那幾塊** ✓（框也跟著 ✓，不要跳去「最終部件」✗） */
+  /* 表意描述序：清單就是**表意描述序的那幾塊** ✓（框也跟著 ✓，不要跳去「最終部件」✗） */
   if (lastEval && lastEval.mode === "ids") return MAIN.boxes;
   if (SHOW_MID) return deepBoxesOfMain();
   if (isComposed()) return frontierBoxesOfMain();
@@ -453,7 +457,7 @@ function compCharOf(idx) {
   return direct !== undefined ? String.fromCodePoint(direct) : String.fromCodePoint(cp);
 }
 
-/* ============================ 構形序列（替換法） ============================ */
+/* ============================ 拼形序列（替換法） ============================ */
 /* 讀法就是 free-compose 的 `base + 舊部件 + 新內容…`（見 free-compose.ts 檔頭）。
  * 判斷只有**兩條規則**，規格舉的兩個例子就是這兩條：
  *   ① 整串求得出一個字形（`evalSeq` 會走整棵引用樹找槽位）→ 就畫它。
@@ -471,7 +475,7 @@ var lastLabelMode = null;
 function legalizeSeq(seq) {
   var tryEval = function (s) {
     /* **參數順序是（lib, expr, opt）**——寫反了不會報錯，
-       只會得到「空的構形序列」（`Array.from(字庫物件)` 是空的），查半天。 */
+       只會得到「空的拼形序列」（`Array.from(字庫物件)` 是空的），查半天。 */
     try { return evalSeq(LIB, s, {}); } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
   };
   var full = tryEval(seq);
@@ -517,7 +521,7 @@ function evalInput(seq) {
   if (noSpace.length === 0) return { mode: "empty" };
   var chars = Array.from(noSpace);
   /* ★ 師父第 122 輪：輸入區要**接受 Unicode IDS**（U+2FF0–2FFF 的構字算子 ✓）——
-     有的話就**推薦更好的構形序** ✓。⚠ IDS 不是構形序 ✗：這條路只推薦 ✓、不直接組字 ✓。 */
+     有的話就**推薦更好的拼形序** ✓。⚠ IDS 不是拼形序 ✗：這條路只推薦 ✓、不直接組字 ✓。 */
   var ops = idsOperators(noSpace);
   if (ops) {
     var lk = idsLeafKey(noSpace);
@@ -606,7 +610,7 @@ function evalInput(seq) {
            note: "「" + chars[1] + "」不是「" + chars[0] + "」的部件", labels: labels };
 }
 
-/** 輸入區左邊的標籤：空白＝「剎那拼形」（醒目色）、合法拼形式＝「合理拼形」、
+/** 輸入區左邊的標籤：空白＝「剎那拼形」（醒目色）、合法拼形式＝「拼形序」、
     其餘＝「部件檢字」。 */
 function labelSet(chars) {
   return (chars || []).join("");
@@ -796,6 +800,17 @@ var SEARCH = null;   /* { term, raw, cps, chars, pos, stroke, mult, scanned } */
  *  回傳 `{ terms, mult, pos, stroke }`。 */
 function parseSearch(raw) {
   var s = String(raw).replace(/\s+/g, "");
+  /* ★ 師父 2026-10-16：**`U+908F` 要能用** ✓——字集瀏覽頁與上面那段說明都這樣寫 ✓，
+     但這一頁以前**沒有接** ✗（實測 `U+908F` 被讀成「U」「F」＋剩 908 畫 → 0 個 ✗）。
+     這裡把它當成**那個字本身** ✓（與直接打那個字同一條路 ✓：單字＝檢字 ✓）。 */
+  var um = /^u\+([0-9a-f]{4,6})$/i.exec(s);
+  if (um) {
+    var ucp = parseInt(um[1], 16);
+    if (ucp > 0 && ucp <= 0x10ffff) {
+      var uch = String.fromCodePoint(ucp);
+      return { raw: s, term: uch, terms: [uch], mult: [1], pos: null, stroke: null };
+    }
+  }
   var n = null, digits = "", terms = [], mult = [], pos = null;
   var pts = Array.from(s);
   for (var i = 0; i < pts.length; i++) {
@@ -912,7 +927,13 @@ function runSearch(raw) {
   }
 
   out.sort(function (a, b) {
-    /* 一般漢字排最前面，同組再按碼位 */
+    /* ★ 師父 2026-10-16：「**BMP 要排在 Ext A 前面**」✓——
+       所以**區塊順序是第一順位** ✓：BMP **全部**排在 Ext A 前面 ✓
+       （⚠ 不是「大部分」✗：把「一般漢字」擺第一順位時，非 uXXXX 的 BMP 字會被夾在
+         Ext A 後面 → 中間就跳回去了 ✗，實測就是這樣被抓到的 ✓）。
+       同一個區裡面：一般漢字（`uXXXX`／`uXXXX-j` ✓）排前面，再按碼位 ✓。 */
+    var byBlock = cmpByBlock(a, b);
+    if (byBlock) return byBlock;
     var ai = indexOfCodePoint(LIB, a), bi = indexOfCodePoint(LIB, b);
     var ap = ai !== undefined && isPlainIdeograph(LIB, ai) ? 0 : 1;
     var bp = bi !== undefined && isPlainIdeograph(LIB, bi) ? 0 : 1;
@@ -954,9 +975,15 @@ var CAND_MAX = 96, candShown = 96;
 function candCellHtml(cp) {
   var idx = indexOfCodePoint(LIB, cp);
   if (idx === undefined) return "";
-  return '<div class="cell cand" data-cp="' + cp + '" title="' + hex(cp) + '">' +
+  /* ★ 師父 2026-10-16：候選字**照 Unicode 分區上色** ✓（`--bc`＋`fill:currentColor` ✓，
+     與字集瀏覽頁的格子**同一個做法、同一份調色盤** ✓）。
+     同一輪再加：碼位**左下角**標出所屬區 ✓（`blockMarkHtml()`，共用層 ✓）——
+     Ext A..I 給字母 ✓、相容區給「相」「補」✓、**基本區 2 萬字不標** ✓（師父指定的例外 ✓）。 */
+  return '<div class="cell cand" data-cp="' + cp + '" title="' + hex(cp) + '"' +
+    ' style="--bc:' + colorOfCp(cp) + '">' +
     '<div class="g">' + glyphSvg(idx) + "</div>" +
-    '<div class="c">' + hex(cp).replace("U+", "") + "</div></div>";
+    '<div class="c">' + blockMarkHtml(cp) +
+    '<span class="cp">' + hex(cp).replace("U+", "") + "</span></div></div>";
 }
 
 function renderSearch() {
@@ -1270,7 +1297,7 @@ function setWand(seqs, keepIfCurrent) {
   showEl(b, WAND.seqs.length > 0);
 }
 
-/** 點魔術棒：把**下一個**建議的構形序填進輸入區並重畫 ✓（再點換下一個 ✓）。 */
+/** 點魔術棒：把**下一個**建議的拼形序填進輸入區並重畫 ✓（再點換下一個 ✓）。 */
 function wandNext() {
   if (!WAND.seqs.length) return;
   WAND.ix = (WAND.ix + 1) % WAND.seqs.length;
@@ -1278,7 +1305,7 @@ function wandNext() {
   $("seq").value = s;
   lastLabelMode = null;
   render();
-  toast("已套用建議的構形序「" + s + "」✓（再點 🪄 換下一個 ✓）", "ok");
+  toast("已套用建議的拼形序「" + s + "」✓（再點 🪄 換下一個 ✓）", "ok");
 }
 
 /** 畫建議（師父第 112 輪的兩個要求）：
@@ -1367,7 +1394,7 @@ function inkWarningOf(st, r) {
 }
 
 /** 滑過大字的框 → 把對應的那一格加上 `hover` ✓（滑出＝全部清掉 ✓）。
- *  孫框、構字式的方塊都靠這一條才看得出「框 ↔ 清單」的對應 ✓（師父 2026-10-15 的要求 ✓）。 */
+ *  孫框、表意描述序的方塊都靠這一條才看得出「框 ↔ 清單」的對應 ✓（師父 2026-10-15 的要求 ✓）。 */
 function hoverChip(box) {
   var ms = document.querySelectorAll("#seqChips .mini.comp");
   for (var i = 0; i < ms.length; i++) {
@@ -1389,7 +1416,7 @@ function hoverFrame(box) {
 /** 把一組框畫成「部件清單」的格子 ✓——**只看得到、不能換** ✓。
  *
  *  用於沒有「替換槽位」語意的兩處：
- *  ① **構字式（IDS）** ✓——清單＝構字式的那幾塊（以前整段清空 ✗，
+ *  ① **表意描述序** ✓——清單＝表意描述序的那幾塊（以前整段清空 ✗，
  *     師父 2026-10-15 回報「點庫存 IDS，部件清單都是空的」✓）；
  *  ② **字框：孫** ✓——清單＝所有子孫的框（點框／點格子才互相亮得起來 ✓）。
  *  `data-box` 是連動的鑰匙 ✓（大字的框也帶同一個號碼 ✓）。 */
@@ -1422,8 +1449,8 @@ function renderBoxChips(boxes, capText) {
 
 function renderSeq(st) {
   var el = $("seqChips"), cap = $("seqNote");
-  /* ★ 構字式（IDS）：部件清單＝**構字式的那幾塊** ✓（師父 2026-10-15 回報空的 ✗） */
-  /* ★ 看得到、不能換的清單（構字式／中間部件／拼形結果的最終部件）——一律走 currentBoxes() ✓，
+  /* ★ 表意描述序：部件清單＝**表意描述序的那幾塊** ✓（師父 2026-10-15 回報空的 ✗） */
+  /* ★ 看得到、不能換的清單（表意描述序／中間部件／拼形結果的最終部件）——一律走 currentBoxes() ✓，
      框、清單、塗色才會指著同一格 ✓（師父的連動要求 ✓）。 */
   if (st && st.mode === "ids") { renderBoxChips(currentBoxes(), "部件清單"); return; }
   if (MAIN && (SHOW_MID || isComposed())) { renderBoxChips(currentBoxes(), "部件清單"); return; }
@@ -1539,9 +1566,9 @@ var STOCK = [
 ];
 
 /* ★ 師父第 122 輪：把兩個 **IDS**（常見的合文 ✓）放在庫存區，讓客人一點就看到 ✓。
-   ⚠ IDS 不是構形序 ✗——IDS 說「要什麼」（`⿰木⿳金⿰水火土`），
-     構形序說「**怎麼拼**」（`機幾墨黒𨩛星炚日水`）✓。兩者不能互換 ✓。
-     這裡的構形序是師父手工擬的 ✓（實測 IoU：elements 0.359 ✓、xue 0.301 ✓，
+   ⚠ IDS 不是拼形序 ✗——IDS 說「要什麼」（`⿰木⿳金⿰水火土`），
+     拼形序說「**怎麼拼**」（`機幾墨黒𨩛星炚日水`）✓。兩者不能互換 ✓。
+     這裡的拼形序是師父手工擬的 ✓（實測 IoU：elements 0.359 ✓、xue 0.301 ✓，
      比自動搜尋的 0.366／0.277 更穩 ✓——xue 那題看圖也是手工的乾淨 ✓）。 */
 /** IDS 用人話寫出來 ✓——**很多系統字型沒有 U+2FF0–2FFF** ✗（實測 headless Edge 全變方框 ▯ ✓），
  *  所以訊息裡不能只印原始 IDS ✓，要附一句「左右（木｜上中下（金｜左右（水火）｜土））」✓。 */
@@ -1608,7 +1635,7 @@ function leafIndexOf(key) {
 }
 
 /* ==================== IDS ↔ 字形（師父第 124 輪） ====================
- * ① **把 IDS 按 IDC 等比分配組出來**（故意醜 ✓）——客人才看得出「構形序」好在哪裡 ✓。
+ * ① **把 IDS 按 IDC 等比分配組出來**（故意醜 ✓）——客人才看得出「拼形序」好在哪裡 ✓。
  *    做法：把每個葉依算子切成等分方格（⿰ 左右各半、⿳ 上中下各三分之一… ✓），
  *    造一個**合成字形**（每個葉一個引用 ＋ 等分框 ＋ 不伸縮 ✓）再交給引擎畫 ✓。
  *    這正是師父說的「按 IDC 的等比分配」✓——**沒有墨跡對齊、沒有讓位** ✓，所以醜 ✓。
@@ -1633,7 +1660,7 @@ function idsComposeNaive(ids) {
   return { lib: r.lib, idx: r.idx, n: r.n, problems: r.problems || [], slots: r.slots };
 }
 
-/* ==================== 任意 IDS → 建議構形序（師父第 125 輪） ====================
+/* ==================== 任意 IDS → 建議拼形序（師父第 125 輪） ====================
  * 師父的例子：客人打「⿰木垚」→ 系統按 IDC 各半畫得醜醜的 ✓ →
  * 然後建議「**桂圭垚**」（`桂`＝木＋圭 ✓，把 `圭` 換成 `垚` ✓）→ 點一下字就漂亮了 ✓。
  *
@@ -1656,7 +1683,7 @@ function leafMultiset(cp, depth) {
   }
   return out;
 }
-/** 為一個 IDS 找建議的構形序 ✓（回傳 [{seq, share, extra, bmp}] ✓，最多 limit 個 ✓） */
+/** 為一個 IDS 找建議的拼形序 ✓（回傳 [{seq, share, extra, bmp}] ✓，最多 limit 個 ✓） */
 function seqCandidatesForIds(ids, limit) {
   var leaves = idsLeafList(ids);
   if (!leaves || leaves.length < 2 || leaves.length > 6 || !LIB.comp) return [];
@@ -1882,13 +1909,13 @@ var IDS_STOCK = [
   { ids: "⿰木⿳金⿰水火土", seq: "機幾墨黒𨩛星炚日水", what: "五行（木＋金水火土）", img: "__IMG_ELEMENTS_B64__" },
   { ids: "⿳𦥯⿰女孔皿", seq: "𦧀熏䀉喬𰠬牜女", what: "好學孔孟（𦥯＋女孔＋皿）", img: "__IMG_XUE_B64__" }
 ];
-/** 輸入區送的 IDS 有沒有現成的構形序 ✓（比對時去掉空白 ✓） */
+/** 輸入區送的 IDS 有沒有現成的拼形序 ✓（比對時去掉空白 ✓） */
 function idsRecommend(ids) {
   var key = String(ids).replace(/\s+/g, "");
   for (var i = 0; i < IDS_STOCK.length; i++) if (IDS_STOCK[i].ids === key) return IDS_STOCK[i];
   return null;
 }
-/** 輸入區裡有沒有 **IDS 算子**（U+2FF0–U+2FFF ✓）——有的話就當構字式處理 ✓ */
+/** 輸入區裡有沒有 **IDS 算子**（U+2FF0–U+2FFF ✓）——有的話就當表意描述序處理 ✓ */
 function idsOperators(s) {
   var out = "";
   var cs = Array.from(String(s));
@@ -1899,7 +1926,49 @@ function idsOperators(s) {
   return out;
 }
 
+/* ---- localStorage 的鍵 ----
+   ★ 師父 2026-10-16：「**輸入區的文字要存進 localStorage，客人不必每次重新輸入** ✓；
+   **字框顯示、中間部件、筆劃粗細也都要存** ✓」——
+   四個鍵一組，全部住在這裡 ✓（不要在頁面各處散著寫字串 ✗）。 */
 var LS_STOCK = "pinxing.stock", LS_BOX = "pinxing.boxmode";
+var LS_SEQ = "pinxing.seq", LS_WSCALE = "pinxing.wscale", LS_MID = "pinxing.showmid";
+
+/** ★ 輸入區的文字**記住** ✓（客人下次打開就還在 ✓）。
+ *  ⚠ 寫入的時機是 **`render()` 這一個漏斗** ✓：打字、點庫存、點部件、魔術棒、
+ *    建議、拆成 IDS、Esc 清空……**每一條改輸入區的路都會走到 render()** ✓，
+ *    所以不必在每個地方各寫一次 ✗（漏一個就會「改了卻沒記到」✗）。 */
+function saveSeqText() {
+  try { localStorage.setItem(LS_SEQ, $("seq").value); } catch (e) { /* 無痕模式 */ }
+}
+
+/** 開頁時把上次的輸入放回輸入區 ✓。
+ *  ⚠ `?baseglyph=`（從字集瀏覽頁帶字過來 ✓）**優先** ✗——
+ *    客人是「指定要看這個字」才點的，蓋掉它就會看起來像按了沒反應 ✓。 */
+function restoreSeqText() {
+  if (cpFromQuery() !== null) return false;
+  try {
+    var v = localStorage.getItem(LS_SEQ);
+    if (v) { $("seq").value = v; return true; }
+  } catch (e) { }
+  return false;
+}
+
+/** 筆劃粗細（`#wscale` 的百分數）✓：讀回來只有在 40～220（滑桿的範圍 ✓）之內才採用 ✓。 */
+function readWScale() {
+  try {
+    var v = Number(localStorage.getItem(LS_WSCALE));
+    if (v >= 40 && v <= 220) return v;
+  } catch (e) { }
+  return 100;
+}
+/** 設定筆劃粗細：**畫面（滑桿與標籤）與 `WSCALE` 一起改** ✓，`save` 時順便記住 ✓。
+ *  ⚠ 開頁時要在**畫任何字之前**呼叫 ✗（庫存按鈕一開頁就畫了 ✓，晚了就是舊粗細 ✗）。 */
+function setWScale(pct, save) {
+  if ($("wscale")) $("wscale").value = String(pct);
+  if ($("wscaleV")) $("wscaleV").textContent = pct + "%";
+  WSCALE = pct / 100;
+  if (save) { try { localStorage.setItem(LS_WSCALE, String(pct)); } catch (e) { } }
+}
 
 function loadUserStock() {
   try { return JSON.parse(localStorage.getItem(LS_STOCK) || "[]"); } catch (e) { return []; }
@@ -1979,7 +2048,7 @@ function toast(text, kind) {
 }
 
 /** 模式切換的一瞬提醒：只改 `#seq` 的顏色（box-shadow 閃一下），不移動任何東西。
-    「合理拼形 ↔ 部件檢字」這種切換只有標籤變色，很容易沒注意到。 */
+    「拼形序 ↔ 部件檢字」這種切換只有標籤變色，很容易沒注意到。 */
 function flashSeq(kind) {
   if (!kind) return;
   var el = $("seq");
@@ -2025,8 +2094,8 @@ function stockHtml() {
 function stockRowIds(ent) {
   var img = ent.img ? '<img class="rawimg" alt="" src="data:image/png;base64,' + ent.img + '">'
                     : '<span class="miss">?</span>';
-  var title = "合文 " + ent.what + "\n按下去＝把構字式送進輸入區：" + ent.ids +
-    "\n（先看 IDS 的等比分配 ✓ 再點系統的構形序建議 ✓）";
+  var title = "合文 " + ent.what + "\n按下去＝把表意描述序送進輸入區：" + ent.ids +
+    "\n（先看 IDS 的等比分配 ✓ 再點系統的拼形序建議 ✓）";
   return '<div class="stockrow ids" data-send="' + ent.ids + '" data-ids="' + ent.ids +
     '" title="' + title + '">' +
     '<div class="stockcell"><span class="mbflag">合</span><div class="g">' + img + '</div></div></div>';
@@ -2065,12 +2134,17 @@ function stockCompose(seq) {
 }
 
 /* ============================ 主畫面 ============================ */
-var BOXMODE = "tight";                 /* "tight"＝顯示、"none"＝不顯示 ✓（兩態 ✓） */
+/* ★ 師父 2026-10-16：**預設不顯示字框** ✓（「缺省不要打開字框顯示」✓）——
+   客人自己打開過（localStorage 有記到 ✓）才打開 ✓；
+   ⚠ 不要寫成「有存過就怎樣」✗：舊版預設是顯示 ✓，那時**沒有存值**，
+     所以「沒有存值 → 預設值」正好就是師父要的新預設 ✓。 */
+var BOXMODE = "none";                   /* "tight"＝顯示、"none"＝不顯示 ✓（兩態 ✓） */
 var SHOW_MID = false;                   /* ★ 顯示中間部件（含孫框）✓（師父 2026-10-15） */
 try {
   var savedBox = localStorage.getItem(LS_BOX);
-  if (savedBox === "none") BOXMODE = "none";
-  if (localStorage.getItem("pinxing.showmid") === "1") SHOW_MID = true;
+  /* 舊版存的是 "tight"（顯示 ✓）；`show`／`deep` 是更舊的寫法，一起接受 ✓（見 §字框三態 ✓） */
+  if (savedBox === "tight" || savedBox === "show" || savedBox === "deep") BOXMODE = "tight";
+  if (localStorage.getItem(LS_MID) === "1") SHOW_MID = true;
 } catch (e) { }
 var ACTIVE_BOX = -1;
 
@@ -2096,6 +2170,7 @@ function scheduleRender() {
  *  **傳進 `evalInput()` 的是原始輸入**：`木 /` 這種寫法的運算子要留給檢字語法，
  *  字元本身在裡面另外濾掉空白再判讀。 */
 function render() {
+  saveSeqText();          /* ★ 師父 2026-10-16：輸入區的文字**當場記住** ✓（見 saveSeqText ✓） */
   var st = evalInput($("seq").value);
   lastEval = st;
   /* ★ 魔術棒：預設收起來 ✓（只有 IDS 模式真的有建議時才站出來 ✓）——
@@ -2106,19 +2181,25 @@ function render() {
   /* 浮層提示：換字時先收起來（有新訊息再顯示） */
   toast("", "");
 
-  /* 左邊的標籤：空白＝剎那拼形（醒目色）／合法拼形式＝合理拼形／其餘＝部件檢字。
+  /* 左邊的標籤：空白＝剎那拼形（醒目色）／合法拼形式＝**拼形序**／其餘＝部件檢字。
+     ★ 師父 2026-10-16：「「合理拼形」改為「構形序」」✓、同日再依「與項目 pinxing 統一」改成
+     **「拼形序」** ✓——同一個模式，只是名字換成客人看得懂的說法 ✓（見 pinxing.md §140／§143 ✓）。
      單字刻意算「檢字」——使用者輸入「合」要的是含合的字清單，不是組字。 */
   var lbl = $("seqlbl");
   var empty = st.mode === "empty";
   var composing = st.mode === "partial" || (st.mode === "ok" && !st.single);
-  lbl.textContent = empty ? "剎那拼形" : composing ? "合理拼形" : "部件檢字";
+  lbl.textContent = empty ? "剎那拼形" : composing ? "拼形序" : "部件檢字";
   lbl.className = "seqlbl" + (empty ? " brand" : composing ? " good" : " find");
-  /* 標籤從「合理拼形」變成「部件檢字」（或反向）時，讓輸入區閃一下顏色（不移動版面） */
+  /* 標籤從「拼形序」變成「部件檢字」（或反向）時，讓輸入區閃一下顏色（不移動版面） */
   var mode3 = empty ? "empty" : composing ? "good" : "find";
   if (mode3 !== lastLabelMode) {
     if (lastLabelMode !== null && mode3 !== "empty") flashSeq(mode3 === "find" ? "warn" : "ok");
     lastLabelMode = mode3;
   }
+  /* ★ 師父 2026-10-16：標籤的 hover 說明**每一種狀態都有** ✓——
+     狀態換了（檢字 ↔ 拼形序 ↔ 空白）內容就要跟著換 ✓；浮層開著的時候**當場更新** ✓，
+     不是收起來 ✗（收起來的話，滑鼠還在標籤上卻東西不見了 ✓，看起來像壞掉 ✓）。 */
+  if ($("lblHelp") && $("lblHelp").classList.contains("on")) $("lblHelp").innerHTML = labelHelpHtml();
   /* 不是合法拼形式就不給存檔（使用者的要求） */
   $("saveSeq").hidden = !composing;
   updateSaveBtn();   /* ★ 存檔 ↔ 垃圾桶（自存的序列 ✓） */
@@ -2137,9 +2218,9 @@ function render() {
 
   if (st.mode === "ids") {
     /* ★ 師父第 124 輪：**輸入 IDS 的組字要故意醜** ✓（就按 IDC 的等比分配 ✓）——
-       這樣客人才看得出 IDS 與構形序的差別 ✓。
-       版面：**大字＝IDS 等比分配的醜形** ✓；**並排那格＝構形序的美形** ✓（點一下就換過去 ✓）。 */
-    lbl.textContent = "構字式（IDS）";
+       這樣客人才看得出 IDS 與拼形序的差別 ✓。
+       版面：**大字＝IDS 等比分配的醜形** ✓；**並排那格＝拼形序的美形** ✓（點一下就換過去 ✓）。 */
+    lbl.textContent = "表意描述序";
     lbl.className = "seqlbl find";
     $("saveSeq").hidden = true;
     var rec = st.recommend;
@@ -2174,7 +2255,7 @@ function render() {
     }
     if (rec && recSeqs.indexOf(rec.seq) < 0) recSeqs.push(rec.seq);   /* 手工調的示範序當後備 ✓ */
     var recIsLive = !!(live && live.cover >= 0.999 && recSeqs[0] === live.seq);
-    /* 若這個構字式**就是某個真字** ✓（葉序反查 ✓）→ 把它排最前面 ✓ */
+    /* 若這個表意描述序**就是某個真字** ✓（葉序反查 ✓）→ 把它排最前面 ✓ */
     if (st.hits && st.hits.length && !recIsLive) {
       var pick = st.hits.slice().sort(function (a, b) {
         var ba = (a >= 0x4e00 && a <= 0x9fff) ? 0 : 1, bb = (b >= 0x4e00 && b <= 0x9fff) ? 0 : 1;
@@ -2189,38 +2270,42 @@ function render() {
       if (stage2) { stage2.innerHTML = ""; stage2.hidden = true; stage2.removeAttribute("data-sug"); }
       if (cap2) {
         cap2.textContent = "試試「" + recSeqs[0] + "」✓（" +
-          (recIsLive ? "系統**當場算**出來的構形序 ✓ " + live.nSteps + " 步 ✓" :
+          (recIsLive ? "系統**當場算**出來的拼形序 ✓ " + live.nSteps + " 步 ✓" :
             recSeqs[0] === (rec && rec.seq) ? "手工調的示範序 ✓" : "系統推薦 ✓") +
           "點一下，字就變漂亮了 ✓）";
       }
-      /* ★ 師父第 136 輪：**先不要把構形序顯示出來** ✗——
+      /* ★ 師父第 136 輪：**先不要把拼形序顯示出來** ✗——
          三塊建議區都只留在 DOM 裡（驗收讀得到 ✓），客人看的是魔術棒 🪄 ✓。 */
       showEl(wrap2, false);
       var row3 = $("sugRow"), sb3 = $("stockSuggest");
       var rowHtml3 = "";
       for (var e3 = 0; e3 < recSeqs.length; e3++) {
         rowHtml3 += '<button class="seqchip" data-sug="' + recSeqs[e3] +
-          '" title="點一下套用這個構形序 ✓">' + recSeqs[e3] + "</button>";
+          '" title="點一下套用這個拼形序 ✓">' + recSeqs[e3] + "</button>";
       }
       if (row3) row3.innerHTML = rowHtml3;
       showEl(sb3, false);
       /* ★ 魔術棒站出來 ✓：客人點一下就用下一個建議 ✓（不把序寫在畫面上 ✗） */
       setWand(recSeqs);
       toast("這是 IDS 的等比分配（**沒有布局資訊** ✓ 所以醜 ✓）——" +
-        "點輸入區右邊的 🪄 試試系統建議的構形序 ✓（再點換下一個 ✓）", naive ? "ok" : "warn");
+        "點輸入區右邊的 🪄 試試系統建議的拼形序 ✓（再點換下一個 ✓）", naive ? "ok" : "warn");
     } else {
       clearSuggestRow();
       setWand(null, false);
       if ($("sugStage")) $("sugStage").hidden = false;
-      toast("這是構字式（IDS）" + st.ids + "——目前沒有現成的構形序 ✓；" +
+      toast("這是表意描述序" + st.ids + "——目前沒有現成的拼形序 ✓；" +
         "下方庫存區有兩個常見合文可以一點就看到 ✓", "warn");
     }
-    /* ★ 師父第 136 輪：**先不要把構形序寫在畫面上** ✗——
-       客人按 🪄 才看到「字突然變美」的那一刻 ✓。 */
-    note.textContent = "構字式（IDS）：" + idsToText(st.ids) +
+    /* ★ 師父第 136 輪：**先不要把拼形序寫在畫面上** ✗——
+       客人按 🪄 才看到「字突然變美」的那一刻 ✓。
+       ★ 師父 2026-10-16：「**「構字式（IDS）」改為「表意描述序」**」✓（第 144 輪再把其餘的
+         「構字式」也一次掃乾淨 ✓——這一行是**當時的原話**，保留舊名 ✓）——
+         標籤、這裡的人話轉寫、浮層提示、庫存合文的提示、按鈕的 tooltip 一起改 ✓
+         （只改一半＝同一個東西兩個名字 ✗，客人會以為是兩件事 ✓）。 */
+    note.textContent = "表意描述序：" + idsToText(st.ids) +
       (naive ? "　※大字是 IDC 等比分配（未經墨跡對齊 ✓ 所以醜 ✓）" : "") +
-      (recSeqs.length ? "　→ 按右邊的 🪄 試試系統建議的構形序 ✓" : "");
-    /* ★ 部件清單：以前整段清空 ✗ → 現在畫出**構字式的那幾塊** ✓
+      (recSeqs.length ? "　→ 按右邊的 🪄 試試系統建議的拼形序 ✓" : "");
+    /* ★ 部件清單：以前整段清空 ✗ → 現在畫出**表意描述序的那幾塊** ✓
        （見 `renderSeq()` 的 ids 分支 ✓；師父 2026-10-15 回報空的 ✓）。 */
     renderSeq(st);
     SEARCH = null; renderSearch(); uploadLinks(null);
@@ -2282,7 +2367,7 @@ function render() {
     toast("已經選好要換掉的「" + st.oldCh + "」→ 接著打（或點）替換內容", "ok");
     renderSuggest(st, null);          /* 中間狀態還沒有替換內容 → 沒有建議 ✓ */
   } else if (r && r.log && r.log.length) {
-    /* 「串接部件」＝替換內容讀不成構形序列，引擎退化成**橫向等分**。
+    /* 「串接部件」＝替換內容讀不成拼形序列，引擎退化成**橫向等分**。
        這**不是**原地換部件（使用者回報：輸入「報幸土业」，左邊變成「土业」水平合併，
        以為是原地把 幸 裡的 土 換成 业），所以用 warn 色、訊息裡明講。 */
     var rowLog = [], restLog = [];
@@ -2369,7 +2454,7 @@ function renderBig(scroll) {
 
 /** 「和字集瀏覽頁連動」的那一條連結（`glyph-browser.html?comp=…`）。
     `comp` 要跟**搜尋實際用的關鍵字**一致：檢字模式是輸入區最後一個字
-    （`runSearch()` 就是用那個字），合理拼形是「要換掉的那個部件」。 */
+    （`runSearch()` 就是用那個字），拼形序是「要換掉的那個部件」。 */
 function uploadLinks(st) {
   var toComp = "";
   if (st && st.mode === "search") {
@@ -2378,7 +2463,7 @@ function uploadLinks(st) {
   } else if (st && st.mode === "partial") {
     toComp = st.oldCh;
   } else if (st && st.mode === "ok" && !st.single) {
-    /* 合理拼形：帶**最後一個字**（＝使用者正在看／正在換的那一個部件）。
+    /* 拼形序：帶**最後一個字**（＝使用者正在看／正在換的那一個部件）。
        多字時 st.chars[0] 是基字，帶基字過去沒什麼用。 */
     var cs = st.chars || [];
     toComp = cs.length ? cs[cs.length - 1] : "";
@@ -2414,7 +2499,58 @@ function goToBrowser() {
 }
 
 /* ============================ 事件 ============================ */
+/** ★ 師父 2026-10-16：標籤的 hover 說明，**兩種內容** ✓：
+ *  ① **部件檢字**（`#seqlbl.find` ✓）→ 檢字運算子的用法 ✓
+ *     內容是**共用層那一份** ✓（與字集瀏覽頁的「運算式說明」同一份 ✓，不要各寫一份 ✗）；
+ *     只有 `U+908F` 那一行不同 ✓（這一頁＝拿那個字去檢字 ✓）。
+ *  ② 其餘（剎那拼形／拼形序 ✓）→ **拼形序的專利依據** ✓
+ *     ★ 師父 2026-10-16：「最下方『拼形序依據 中国发明专利 201610984608.1 号』
+ *       移到上方『構形序』的 hover 說明」✓——所以那一句從頁尾搬到這裡 ✓（**字一字不改** ✓）。
+ *     ⚠ 空白時（頁名「剎那拼形」✓）也給同一句 ✓：那是頁尾本來就在講的事 ✓，
+ *       搬上來之後如果只有「拼形序」那一個狀態才看得到，第一次打開的人就找不到它了 ✗。
+ *  ⚠ 浮層是 `absolute` ✓：出現／消失都**不推動版面** ✓（跟 .toast 同一個原則 ✓）。 */
+var PATENT_LINE = "拼形序依據 中国发明专利 201610984608.1 号";
+
+function labelHelpEnabled() {
+  var l = $("seqlbl");
+  return !!(l && /(^| )find( |$)/.test(l.className));
+}
+function labelHelpHtml() {
+  return labelHelpEnabled()
+    ? searchHelpHtml(["U+908F", "用那個碼位的字去檢字"])
+    : PATENT_LINE;
+}
+function hideLabelHelp() {
+  if ($("lblHelp")) $("lblHelp").classList.remove("on");
+  if ($("lblHelp")) $("lblHelp").hidden = true;
+}
+function showLabelHelp() {
+  var el = $("lblHelp");
+  if (!el) return;
+  /* ⚠ 每次都重算內容 ✓：狀態換了（檢字 ↔ 拼形序）內容就不一樣 ✓，
+     只在第一次填會留下上一個狀態的說明 ✗。 */
+  el.innerHTML = labelHelpHtml();
+  el.hidden = false;
+  el.classList.add("on");
+}
+
 function bind() {
+  /* ★ 2026-10-16：標籤的運算子用法（滑過彈出 ✓）——滑鼠 hover 為主 ✓，
+     觸控沒有 hover ✓，所以再補一個「點一下切換」✓（點別的地方或換狀態就收起來 ✓）。 */
+  if ($("seqlbl")) {
+    $("seqlbl").addEventListener("mouseenter", showLabelHelp);
+    $("seqlbl").addEventListener("mouseleave", hideLabelHelp);
+    $("seqlbl").addEventListener("click", function () {
+      var on = $("lblHelp") && $("lblHelp").classList.contains("on");
+      if (on) hideLabelHelp(); else showLabelHelp();
+    });
+  }
+  if ($("lblHelp")) $("lblHelp").addEventListener("click", hideLabelHelp);
+  document.addEventListener("click", function (e) {
+    if (!e.target || !e.target.closest) return;
+    if (e.target.closest("#lblHelp") || e.target.closest("#seqlbl")) return;
+    hideLabelHelp();
+  });
   /* 輸入就重畫（排到 microtask，見 scheduleRender） */
   $("seq").addEventListener("input", scheduleRender);
   $("seq").addEventListener("compositionend", scheduleRender);
@@ -2445,8 +2581,8 @@ function bind() {
   if ($("sugRow")) $("sugRow").addEventListener("click", function (e) { pickSuggestion(e.target); });
 
   /* ★ 師父第 124 輪：「拆成 IDS」按鈕 ✓——客人不會打 IDC ✓，所以要有按鈕 ✓。
-     按一下＝把輸入區那個字拆成構字式（IDS）✓ → 立刻看到 **IDS 的等比分配（醜）** ✓
-     與 **構形序的美形**（並排 ✓）的差別 ✓。 */
+     按一下＝把輸入區那個字拆成**表意描述序**✓ → 立刻看到 **IDS 的等比分配（醜）** ✓
+     與 **拼形序的美形**（並排 ✓）的差別 ✓。 */
   if ($("toIds")) $("toIds").addEventListener("click", function () {
     var v = String($("seq").value || "").replace(/\s+/g, "");
     var first = Array.from(v)[0];
@@ -2460,7 +2596,7 @@ function bind() {
     $("seq").value = ids;
     render();
     $("seq").focus();
-    toast("已拆成構字式：" + ids + " ✓——大字是 IDC 等比分配（醜 ✓）、右邊是構形序（美 ✓）", "ok");
+    toast("已拆成表意描述序：" + ids + " ✓——大字是 IDC 等比分配（醜 ✓）、右邊是拼形序（美 ✓）", "ok");
   });
 
   /* 部件序列：點一下＝用那個部件替換掉它自己的槽位。
@@ -2472,7 +2608,7 @@ function bind() {
     if (!mini) return;
     var ch = mini.getAttribute("data-ch");
     if (!ch) {
-      /* ★ 只看得到、不能換的格子（**構字式的塊**、**孫框**）——
+      /* ★ 只看得到、不能換的格子（**表意描述序的塊**、**孫框**）——
          點一下＝**選它** ✓：框與清單互相亮起 ✓（師父 2026-10-15 的要求 ✓）。 */
       var bx = mini.getAttribute("data-box");
       ACTIVE_BOX = bx !== null ? Number(bx) : -1;
@@ -2510,7 +2646,7 @@ function bind() {
   $("stock").addEventListener("click", function (e) {
     var row = e.target.closest ? e.target.closest(".stockrow") : null;
     if (!row) return;
-    /* ★ 師父第 127 輪：合文那兩個按鈕送的是 **IDS** ✓（不是構形序 ✗）——
+    /* ★ 師父第 127 輪：合文那兩個按鈕送的是 **IDS** ✓（不是拼形序 ✗）——
        客人先看到「IDS 組出來的醜字」✓，再自己點建議、字形才變美 ✓（別一次掀底牌 ✓）。 */
     $("seq").value = row.getAttribute("data-send") || row.getAttribute("data-seq");
     ACTIVE_BOX = -1;
@@ -2521,16 +2657,16 @@ function bind() {
   /* ★ 師父第 136 輪：**魔術棒 🪄**（DOM 位置在 saveSeq 的前一個 ✓） */
   if ($("wand")) $("wand").addEventListener("click", wandNext);
 
-  /* 筆劃粗細：改 WSCALE 之後**一定要清快取**，否則畫面上還是舊粗細 */
+  /* 筆劃粗細：改 WSCALE 之後**一定要清快取**，否則畫面上還是舊粗細 ✓；
+     順便記住這個值 ✓（師父 2026-10-16：「筆劃粗細也存進 localStorage」✓）。 */
   $("wscale").addEventListener("input", function () {
-    WSCALE = Number(this.value) / 100;
-    $("wscaleV").textContent = this.value + "%";
+    setWScale(Number(this.value), true);
     clearAllCache();
     renderBig(false);
     renderSeq(lastEval);
   });
 
-  /* 字框：**兩態**（顯示 ↔ 不顯示）✓ */
+  /* 字框：**兩態**（顯示 ↔ 不顯示）✓（預設＝不顯示 ✓，師父 2026-10-16 ✓） */
   $("boxMode").addEventListener("click", function () {
     BOXMODE = BOXMODE === "none" ? "tight" : "none";
     try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
@@ -2544,7 +2680,7 @@ function bind() {
     $("showMid").checked = SHOW_MID;
     $("showMid").addEventListener("change", function () {
       SHOW_MID = !!this.checked;
-      try { localStorage.setItem("pinxing.showmid", SHOW_MID ? "1" : "0"); } catch (e) { }
+      try { localStorage.setItem(LS_MID, SHOW_MID ? "1" : "0"); } catch (e) { }
       renderBig(false);
       renderSeq(lastEval);
     });
@@ -2635,13 +2771,10 @@ function compKidsByName(gi) {
 }
 
 /* ============================ 開頁 ============================ */
-function gunzip(raw) {
-  if (typeof DecompressionStream === "function") {
-    var stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"));
-    return new Response(stream).arrayBuffer().then(function (b) { return new Uint8Array(b); });
-  }
-  return Promise.reject(new Error("此瀏覽器不支援 DecompressionStream"));
-}
+/* ★ 2026-10-16：解壓走**共用層的 `gunzipBytes()`** ✓——內建的 `DecompressionStream`
+   不是每個瀏覽器都有 ✗（微信內建的就沒有 ✓），沒有它整頁等於打不開 ✗。
+   純 JS 的後備在 `glyph-common-page.js` ✓（**不要**在這裡再寫一份 ✗）。 */
+function gunzip(raw) { return gunzipBytes(raw); }
 function b64ToBytes(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
 
 /** `?baseglyph=U+xxxx`（從字集瀏覽頁帶基字進來）。前綴與大小寫都要容錯。
@@ -2672,9 +2805,15 @@ gunzip(b64ToBytes(LIB_B64))
     LIB = decodeLibrary(bin);
     var decodeMs = Math.round(performance.now() - t0);
     applyBoxMode();
+    /* ★ 師父 2026-10-16：筆劃粗細要在**畫任何字之前**還原 ✓——
+       下面 `stockHtml()` 一開頁就把庫存按鈕畫出來了 ✓，晚了就是舊粗細 ✗。 */
+    setWScale(readWScale(), false);
     $("stock").innerHTML = stockHtml();
     bind();
 
+    /* ★ 師父 2026-10-16：**還原上次的輸入** ✓（客人不必每次重新輸入 ✓）。
+       ⚠ 順序：先還原、再讓 `?baseglyph=` 覆蓋 ✓（從字集瀏覽頁帶字過來時以它為準 ✓）。 */
+    restoreSeqText();
     var cp = cpFromQuery();
     if (cp !== null) {
       var g = String.fromCodePoint(cp);
@@ -2689,6 +2828,9 @@ gunzip(b64ToBytes(LIB_B64))
       decodeMs: decodeMs,
       baseglyph: cp
     };
+    /* ★ 2026-10-16：起得來就把「開頁看門狗」收掉 ✓（見 build-pinxing.ts 的那支小 script ✓）——
+       沒有收掉的話，慢一點的機器會在畫面上多出一塊「載入失敗」的紅字 ✗。 */
+    if (window.__BOOTOK__) window.__BOOTOK__();
     window.__STATE__ = function () {
       var st = lastEval;
       return {
@@ -2709,6 +2851,8 @@ gunzip(b64ToBytes(LIB_B64))
     };
   })
   .catch(function (e) {
+    if (window.__BOOTOK__) window.__BOOTOK__();
     document.body.innerHTML = '<div style="padding:20px;color:#ff8080">載入失敗：' + (e && e.message) +
-      (e && e.stack ? "｜" + String(e.stack).split("\n").slice(0, 3).join(" ← ") : "") + "</div>";
+      (e && e.stack ? "｜" + String(e.stack).split("\n").slice(0, 3).join(" ← ") : "") +
+      '<br><br>如果這是在<b>微信</b>裡打開的，改用<b>系統自帶的瀏覽器</b>開同一個檔案試試。</div>';
   });

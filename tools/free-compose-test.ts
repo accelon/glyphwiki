@@ -27,7 +27,7 @@ const fmtD = (v: number) => (!Number.isFinite(v) ? "無" : v.toFixed(1));
 
 // ---------------------------------------------------------------- 1. 語意
 
-console.log("1. 構形序列語意（遞歸讀法，依 format.md「進階任務 2」）");
+console.log("1. 拼形序列語意（遞歸讀法，依 format.md「進階任務 2」）");
 const cases: [string, boolean, string][] = [
   ["街圭舞", true, "街 的 圭 → 舞"],
   ["寶缶支", true, "官方對照組"],

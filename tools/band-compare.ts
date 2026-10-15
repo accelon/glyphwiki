@@ -52,7 +52,7 @@ function viaFit(seq: string, band: boolean) {
   if ("error" in r) throw new Error(r.error);
   return { lib: r.lib, idx: r.targetIdx };
 }
-/** 遞歸讀法（構形序列），可切換讓位 */
+/** 遞歸讀法（拼形序列），可切換讓位 */
 function viaSeq(seq: string, band: boolean) {
   const r = evalSeq(lib, seq, { band });
   if (!r.ok) throw new Error(r.error);

@@ -11,23 +11,10 @@
 /* ============================ 主流程 ============================ */
 var LIB_B64 = "__LIB_B64__";
 
-/* ---- 12 個 CJK 漢字區塊 ----
-   面板上只用短標籤（BMP、A..I、相容、相容補）省空間；
-   全名放在 title，滑過去就看得到。 */
-var BLOCKS = [
-  { id: "BMP",   name: "CJK Unified Ideographs（基本區）",              a: 0x4E00,  b: 0x9FFF },
-  { id: "A",     name: "CJK Unified Ideographs Extension A",           a: 0x3400,  b: 0x4DBF },
-  { id: "B",     name: "CJK Unified Ideographs Extension B",           a: 0x20000, b: 0x2A6DF },
-  { id: "C",     name: "CJK Unified Ideographs Extension C",           a: 0x2A700, b: 0x2B73F },
-  { id: "D",     name: "CJK Unified Ideographs Extension D",           a: 0x2B740, b: 0x2B81F },
-  { id: "E",     name: "CJK Unified Ideographs Extension E",           a: 0x2B820, b: 0x2CEAF },
-  { id: "F",     name: "CJK Unified Ideographs Extension F",           a: 0x2CEB0, b: 0x2EBEF },
-  { id: "G",     name: "CJK Unified Ideographs Extension G",           a: 0x30000, b: 0x3134F },
-  { id: "H",     name: "CJK Unified Ideographs Extension H",           a: 0x31350, b: 0x323AF },
-  { id: "I",     name: "CJK Unified Ideographs Extension I",           a: 0x2EBF0, b: 0x2EE5F },
-  { id: "相容",   name: "CJK Compatibility Ideographs（相容區）",        a: 0xF900,  b: 0xFAFF },
-  { id: "相容補", name: "CJK Compatibility Ideographs Supplement（相容補充）", a: 0x2F800, b: 0x2FA1F }
-];
+/* ⚠ 「12 個 CJK 區塊」（`BLOCKS`）與**區塊調色盤**（`blockIndexOf`／`colorOfBlock`／
+   `colorOfCp`／`colorOfGlyph`）現在都在**共用層** `tools/glyph-common-page.js` ✓
+   ——拼形頁的**候選字**也要用同一套色 ✓（師父 2026-10-16 ✓）。
+   **不要**在這一頁再寫一份 ✗：兩份就等著「A 頁改了、B 頁沒改」✗。 */
 
 var LIB = null;
 var COMP = null;          /* L1：碼位 → **直接**父字索引（位置量測要用這一層） */
@@ -48,32 +35,10 @@ var FILTER = null;        /* 目前的查詢（parseQuery 的結果） */
 
 function cpOfCh(s) { var c = s.codePointAt(0); return c === undefined ? null : c; }
 
-/* ---- 區塊配色：HSV，每個區塊轉一個角度 ----
-   12 個區塊，360 / 12 = **30°**，剛好繞一圈、每相鄰兩區只差 30°，
-   變化最柔和（師父要的）。不用黃金角 137.5°——那雖然最好分辨，
-   但相鄰區塊會跳到完全不同的色系，不是「柔和」。
-
-   S、V 固定：黑底上 S 太低會灰掉、太高會刺眼；V=1 讓顏色最亮。
-   HSV（不是 HSL）：固定 S/V 時 HSV 的明度比 HSL 均勻。 */
-
-/* 12 個區塊，360 / 12 = **30°**，剛好繞一圈、每相鄰兩區只差 30°，
-   變化最柔和（師父要的）。不用黃金角 137.5°——那雖然最好分辨，
-   但相鄰區塊會跳到完全不同的色系，不是「柔和」。
-
-   S、V 固定：黑底上 S 太低會灰掉、太高會刺眼；V=1 讓顏色最亮。
-   HSV（不是 HSL）：固定 S/V 時 HSV 的明度比 HSL 均勻。
-   `hsv()` 本身在 tools/glyph-common-page.js（兩頁共用），這裡只放區塊調色盤。 */
-var HUE_STEP = 30, SAT = 0.55, VAL = 1.0;
-
-/** 無碼位（純部件）或落在 12 個 CJK 區塊以外的字：中性灰 */
-var NEUTRAL = "rgb(146,152,162)";
-function colorOfBlock(bi) { return bi < 0 ? NEUTRAL : hsv(bi * HUE_STEP, SAT, VAL); }
-function colorOfCp(cp) { return colorOfBlock(blockIndexOf(cp)); }
-function colorOfGlyph(i) {
-  var cp = codePointOf(LIB, i);
-  return cp ? colorOfCp(cp) : NEUTRAL;
-}
-
+/* ---- 區塊配色 ----
+   ⚠ 調色盤（`HUE_STEP`／`SAT`／`VAL`／`NEUTRAL`／`colorOfBlock`／`colorOfCp`／
+      `colorOfGlyph`）在**共用層** `tools/glyph-common-page.js` ✓（師父 2026-10-16：
+      拼形頁的候選字要用同一套色 ✓）。這裡**不要**再定義一次 ✗。 */
 
 /** 家族去重：濾掉畫出來一樣的成員。
     最常見的是「純指標」——`uXXXX` 只是一個引用指向 `uXXXX-j`，兩者渲染完全相同
@@ -142,8 +107,11 @@ function runVariantSearch(gi, label) {
     seen.add(pc);
     if (inSel(pc)) list.push(pc); else listOut.push(pc);
   }
-  list.sort(function (a, b) { return a - b; });
-  listOut.sort(function (a, b) { return a - b; });
+  /* ★ 師父 2026-10-16：「**BMP 要排在 Ext A 前面**」✓——`a - b`（按碼位）會把 Ext A
+     （U+3400 起）全部排在 BMP（U+4E00 起）前面 ✗；改用共用的 `cmpByBlock()` ✓
+     （照 `BLOCKS` 的順序：BMP → A → B → … → 相容補 ✓，同區才按碼位 ✓）。 */
+  list.sort(cmpByBlock);
+  listOut.sort(cmpByBlock);
   FILTER = { raw: label, variant: gi };
   LIST = list.concat(listOut);
   MARKS = null;
@@ -207,10 +175,7 @@ function inSel(cp) {
   }
   return false;
 }
-function blockIndexOf(cp) {
-  for (var i = 0; i < BLOCKS.length; i++) if (cp >= BLOCKS[i].a && cp <= BLOCKS[i].b) return i;
-  return -1;
-}
+/* `blockIndexOf(cp)` 與調色盤一起在共用層 ✓（師父 2026-10-16 ✓） */
 /** 選取區塊的全部碼位（區塊互不重疊，所以照索引順序接起來就是遞增） */
 function listingOfSelected() {
   var idx = SEL_BLOCKS.slice().sort(function (a, b) { return a - b; });
@@ -257,7 +222,9 @@ function cellHtml(cp) {
   if (!inSel(cp)) mark += " outside";
   return '<div class="cell' + dim + sel + mark + '" data-cp="' + cp + '" style="--bc:' + colorOfCp(cp) + '">' +
          '<div class="g">' + inner + "</div>" +
-         '<div class="c">' + hex(cp) + "</div></div>";
+         /* ★ 師父 2026-10-16：碼位左下角標所屬區 ✓（Ext A..I 給字母、相容區給「相」「補」、
+            基本區 2 萬字不標 ✓）——與拼形頁的候選字同一份 markup ✓（共用層的 `blockMarkHtml` ✓）。 */
+         '<div class="c">' + blockMarkHtml(cp) + '<span class="cp">' + hex(cp) + "</span></div></div>";
 }
 
 function renderVisible() {
@@ -351,7 +318,7 @@ function cardHtml(idx, k) {
       String.fromCodePoint(cp) + "」為部件搜尋</button></div>" : "") +
     '<div class="row"><button class="copyCp" data-idx="' + idx + '" style="flex:1">複製 ' +
     (cp ? hex(cp) : "—") + "</button>" +
-    '<button class="copySeq" data-idx="' + idx + '" style="flex:1">複製構形序列</button></div></div>');
+    '<button class="copySeq" data-idx="' + idx + '" style="flex:1">複製拼形序列</button></div></div>');
 
   parts.push("</div>");
   return parts.join("");
@@ -568,8 +535,9 @@ function runFilter(q) {
     if (inSel(pc)) list.push(pc); else listOut.push(pc);
   }
 
-  list.sort(function (a, b) { return a - b; });
-  listOut.sort(function (a, b) { return a - b; });
+  /* 同上：**照 BLOCKS 的順序**排 ✓（BMP → Ext A → …；師父 2026-10-16 ✓） */
+  list.sort(cmpByBlock);
+  listOut.sort(cmpByBlock);
   var nOut = listOut.length;
   var all = list.concat(listOut);
   /* 把**輸入的部件本身**排在最前面，這樣可以直接點下去看它有哪些異體。
@@ -849,13 +817,10 @@ function bind() {
 }
 
 /* ============================ 開頁 ============================ */
-function gunzip(raw) {
-  if (typeof DecompressionStream === "function") {
-    var stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream("gzip"));
-    return new Response(stream).arrayBuffer().then(function (b) { return new Uint8Array(b); });
-  }
-  return Promise.reject(new Error("此瀏覽器不支援 DecompressionStream"));
-}
+/* ★ 2026-10-16：解壓走**共用層的 `gunzipBytes()`** ✓（內建的 `DecompressionStream`
+   在微信內建瀏覽器沒有 ✗ → 那一頁會整頁打不開 ✗）。純 JS 的後備在
+   `glyph-common-page.js` ✓（**不要**在這一頁再寫一份 ✗）。 */
+function gunzip(raw) { return gunzipBytes(raw); }
 
 var t0 = performance.now();
 function b64ToBytes(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
@@ -896,6 +861,9 @@ gunzip(b64ToBytes(LIB_B64))
     };
     var s = document.getElementById("status");
     if (s) s.textContent = "就緒";
+    /* ★ 2026-10-16：運算子的用法**只有共用層那一份** ✓（見 glyph-common-page.js ✓）——
+       這一頁多加的那一條是「跳到碼位」✓（拼形頁那一條是「拿那個字去檢字」✓）。 */
+    if ($("helpBody")) $("helpBody").innerHTML = searchHelpHtml(["U+908F", "直接跳到該碼位"]);
   })
   .catch(function (e) {
     document.body.innerHTML = '<div style="padding:20px;color:#b3261e">載入失敗：' + e.message + "</div>";

@@ -1,9 +1,9 @@
 // v2-explore.ts — V2 最小實驗：把提案的例子餵進 composeFit，判定語意與美觀。
 //
-// 背景：`format.md` 的「進階任務 2」給了本專案的構形序列定義：
+// 背景：`format.md` 的「進階任務 2」給了本專案的拼形序列定義：
 //   峰夆電雨水 ＝ 峰 中的「夆」替換為「電雨水」，而「電雨水」＝ 電 上方的「雨」改為「水」
 // 也就是**遞歸**：第 2 個字是「舊部件」的名字，第 3 個字起是「新內容」，
-// 而「新內容」本身又可以是一個構形序列（或一串原始部件）。
+// 而「新內容」本身又可以是一個拼形序列（或一串原始部件）。
 //
 // 用法: bun run tools/v2-explore.ts
 import { readFileSync } from "node:fs";
@@ -41,7 +41,7 @@ for (const c of ["街", "峰"]) {
   tree(findGlyphIndex(lib, ch(c))!);
 }
 
-// ---------------------------------------------------------------- 構形序列求值
+// ---------------------------------------------------------------- 拼形序列求值
 
 /** 把新內容（可能是序列）解析成「可直接代入單一槽位的字形索引」 */
 function resolveNew(L: Library, expr: string, depth = 0): { idx: number; lib: Library; log: string[] } | { error: string } {
@@ -87,7 +87,7 @@ function buildRow(L: Library, chars: string[]): { idx: number; lib: Library; log
   return { idx: newIdx, lib: cur, log: [`串接 ${chars.join("")}（橫向 ${idxs.length} 等分）`] };
 }
 
-/** 求值一個構形序列：base + 舊 + 新…（遞歸） */
+/** 求值一個拼形序列：base + 舊 + 新…（遞歸） */
 function evalSeq(L: Library, expr: string, depth = 0): { lib: Library; targetIdx: number; log: string[] } | { error: string } {
   if (depth > 6) return { error: "遞歸過深" };
   const chars = Array.from(expr);

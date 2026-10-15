@@ -4,7 +4,7 @@
  *
  * `邏羅寶貝𩀨從䞃致招` 有兩種讀法，兩者「理論上」應該同一個結果：
  *
- *   A. 遞歸（`free-compose.ts` 的 `evalSeq`，`︵…︶` 內的構形序列語意）
+ *   A. 遞歸（`free-compose.ts` 的 `evalSeq`，`︵…︶` 內的拼形序列語意）
  *        邏 [羅→(寶 [貝→(𩀨 [從→(䞃 [致→招])])])]
  *
  *   B. 成對（`composeFit`，`kage-viewer.html` 目前用的規則）
@@ -122,7 +122,7 @@ if ("error" in c) { console.error("C 失敗：" + c.error); process.exit(1); }
 const covC = rasterize(kageOf(c.lib, c.targetIdx), keyOfIdx(c.lib, c.targetIdx), 200, 1).cov;
 
 const readings: Reading[] = [
-  { name: "A 遞歸（evalSeq，構形序列語意）", lib: a.lib, idx: a.targetIdx, log: a.log, cov: covA },
+  { name: "A 遞歸（evalSeq，拼形序列語意）", lib: a.lib, idx: a.targetIdx, log: a.log, cov: covA },
   { name: "B 成對（composeFit，檢視頁目前規則）", lib: b.lib, idx: b.targetIdx, log: b.log, cov: covB },
   { name: "C 成對、但關掉同層讓位（改版前）", lib: c.lib, idx: c.targetIdx, log: c.log, cov: covC },
 ];

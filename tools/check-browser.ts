@@ -131,6 +131,15 @@ console.log("\n3. 網頁語法");
   const sm = /<script>([\s\S]*?)<\/script>/.exec(html);
   try { new Function(sm![1]!); ok("script 區塊語法正確"); }
   catch (e) { bad("語法錯誤：" + (e as Error).message); }
+  /* ★ 2026-10-16：區塊調色盤（`BLOCKS` ＋ `blockIndexOf`／`colorOfBlock`／`colorOfCp`／
+     `colorOfGlyph`）搬進**共用層** `tools/glyph-common-page.js` ✓——拼形頁的**候選字**
+     要用同一套色 ✓（師父：「配色同 glyph-browser.html」✓）。
+     ⚠ 這一頁**不可以**再定義第二份 ✗（改了共用層就會兩頁一起變 ✓）。
+     兩份產出物的調色盤是否**逐字相同**，由 `check-pinxing.ts` 交叉比對 ✓。 */
+  const nBlocks = (sm![1]!.match(/var BLOCKS = \[/g) || []).length;
+  nBlocks === 1
+    ? ok("區塊表只有一份（在共用層；這一頁沒有再抄第二份 ✓）")
+    : bad(`出現 ${nBlocks} 份 var BLOCKS——調色盤應該只有共用層那一份 ✗`);
 }
 
 // 4) base64 完整性
@@ -427,9 +436,43 @@ if (!existsSync(EDGE)) {
       out.push("cB=" + encodeURIComponent(bc[2]));
       /* 現在是 BMP + B，第一格是 BMP 的字 */
       out.push("cellBmp=" + encodeURIComponent(getComputedStyle(document.querySelector("#rows .cell")).color));
+      /* ★ 師父 2026-10-16：碼位**左下角**的小標（所屬區）✓——
+         **基本區（BMP）不標** ✓（師父指定的例外 ✓）、Extension 標英文字母 ✓；
+         而且是**粗體 Arial** ＋ 自己那一區的顏色 ✓（醒目 ✓）。 */
+      out.push("bmpHasMark=" + (function () {
+        var f = document.querySelector("#rows .cell");
+        var mk = f && f.querySelector(".c .blkmark");
+        return mk ? encodeURIComponent(mk.textContent) : "no";
+      })());
       /* 關掉 BMP 只剩 B，第一格應該換成 B 的顏色 */
       document.querySelectorAll("#blocks .blk")[0].click();
       out.push("cellB=" + encodeURIComponent(getComputedStyle(document.querySelector("#rows .cell")).color));
+      /* 只剩 Ext B → 格區裡**不只是** Ext B：未選取區塊的命中會排在後面（「.outside」✓），
+         所以這裡驗的是「**每一格的小標都對得上它自己的碼位**」✓，不是「每一格都是 B」✗。
+         另外把第一個有標的格子的**算出來的樣式**帶出來 ✓（字體／粗細／顏色／淡化 ✓）。 */
+      (function () {
+        var cells = document.querySelectorAll("#rows .cell"), pairs = [], first = null;
+        for (var q = 0; q < cells.length; q++) {
+          var mk = cells[q].querySelector(".c .blkmark");
+          var cpN = Number(cells[q].getAttribute("data-cp"));
+          pairs.push(cpN + ":" + (mk ? mk.textContent : "-"));
+          if (!first && mk) first = { cell: cells[q], mk: mk };
+        }
+        out.push("cellMarks=" + encodeURIComponent(pairs.join(" ")));
+        out.push("cellMarkN=" + cells.length);
+        if (first) {
+          var ms = getComputedStyle(first.mk);
+          out.push("markText=" + encodeURIComponent(first.mk.textContent));
+          out.push("markFam=" + encodeURIComponent(ms.fontFamily));
+          out.push("markWeight=" + ms.fontWeight);
+          out.push("markSize=" + ms.fontSize);
+          out.push("markColor=" + encodeURIComponent(ms.color));
+          out.push("markCellBc=" + encodeURIComponent(
+            getComputedStyle(first.cell).getPropertyValue("--bc").trim()));
+          /* 小標**不可以**跟著碼位一起被淡化（「opacity」在 .c 上會蓋住子樹 ✗） */
+          out.push("markLineOpacity=" + getComputedStyle(first.cell.querySelector(".c")).opacity);
+        }
+      })();
       document.querySelectorAll("#blocks .blk")[0].click();
       /* 𩀨 是 Ext B，它的部件 隹／從 都在 BMP → 大字與部件的顏色必須不同 */
       var jb1 = document.getElementById("comp");
@@ -450,6 +493,24 @@ if (!existsSync(EDGE)) {
       out.push("formSample=" + encodeURIComponent(
         Array.prototype.map.call(fm, function (m) { return getComputedStyle(m).color; })
           .slice(0, 6).join("|")));
+    },
+    /* --- ★ 2026-10-16（師父）：「**BMP 要排在 Ext A 前面**」✓——
+       單按碼位排會相反 ✗（Ext A 從 U+3400 起、BMP 從 U+4E00 起 ✓），
+       所以列表要**照 BLOCKS 的順序**排 ✓（BMP → Ext A → Ext B → …）。 --- */
+    function () {
+      document.querySelectorAll("#blocks .blk")[1].click();      /* 打開 Ext A ✓ */
+      var cs = document.querySelectorAll("#rows .cell"), head = [];
+      for (var i = 0; i < cs.length && i < 24; i++) head.push(Number(cs[i].getAttribute("data-cp")));
+      var seenOther = false, bmpAfter = 0;
+      for (var j = 0; j < head.length; j++) {
+        if (head[j] >= 0x4E00 && head[j] <= 0x9FFF) { if (seenOther) bmpAfter++; }
+        else seenOther = true;
+      }
+      out.push("ordFirst=" + (head[0] || 0).toString(16).toUpperCase());
+      out.push("ordBmpAfter=" + bmpAfter);
+      out.push("ordHead=" + encodeURIComponent(
+        head.slice(0, 8).map(function (c) { return c.toString(16).toUpperCase(); }).join(",")));
+      document.querySelectorAll("#blocks .blk")[1].click();      /* 還原：關掉 Ext A ✓ */
     },
     /* --- 詳細面板的「由哪些部件構成」：只看，不能動到中間的格區 --- */
     function () {
@@ -802,9 +863,58 @@ if (!existsSync(EDGE)) {
       : bad(`格子色 ${txt("cellBmp")} ≠ 區塊色 ${txt("cBmp")}`);
     nospace(txt("cellB")) === nospace(txt("cB"))
       ? ok("換區塊後格子顏色也跟著換") : bad(`換區塊後是 ${txt("cellB")}，應為 ${txt("cB")}`);
+    /* ★ 師父 2026-10-16：碼位**左下角**標所屬區 ✓——
+       **基本區 2 萬字不標** ✓（師父指定的例外 ✓）、Extension 標**英文字母** ✓、
+       小標是**粗體 Arial** ＋ **那一區的顏色** ✓，而且**不跟著碼位被淡化** ✓。 */
+    txt("bmpHasMark") === "no"
+      ? ok("基本區（BMP）的格子左下角**不標**區名（師父指定的例外 ✓）")
+      : bad(`BMP 的格子標了「${txt("bmpHasMark")}」（應該不標 ✗）`);
+    {
+      /* 期望值在驗收裡**自己寫一份**（不是讀頁面的 `BLOCKS` ✓），才驗得出頁面真的照規則標 ✓ */
+      const MARK_OF_BLOCK = ["", "A", "B", "C", "D", "E", "F", "G", "H", "I", "相", "補"];
+      const RANGES: [number, number][] = [
+        [0x4E00, 0x9FFF], [0x3400, 0x4DBF], [0x20000, 0x2A6DF], [0x2A700, 0x2B73F],
+        [0x2B740, 0x2B81F], [0x2B820, 0x2CEAF], [0x2CEB0, 0x2EBEF], [0x30000, 0x3134F],
+        [0x31350, 0x323AF], [0x2EBF0, 0x2EE5F], [0xF900, 0xFAFF], [0x2F800, 0x2FA1F],
+      ];
+      const wantMark = (cp: number): string => {
+        const bi = RANGES.findIndex(([a, b]) => cp >= a && cp <= b);
+        return bi < 0 ? "" : MARK_OF_BLOCK[bi]!;
+      };
+      const pairs = txt("cellMarks").split(" ").filter((s) => s.includes(":"));
+      const wrong = pairs.filter((p) => {
+        const [cp, got] = p.split(":");
+        return (got === "-" ? "" : got) !== wantMark(Number(cp));
+      });
+      const hasB = pairs.some((p) => p.endsWith(":B"));
+      pairs.length >= 10 && wrong.length === 0 && hasB
+        ? ok(`格區 ${pairs.length} 格的小標都對得上自己的碼位（含 Ext B 的「B」✓；` +
+             `未選取區塊的命中標的是**它自己的**區 ✓）`)
+        : bad(`左下角小標不對：${wrong.slice(0, 5).join("／") || `只抽到 ${pairs.length} 格`}`);
+    }
+    /Arial/i.test(txt("markFam")) && Number(txt("markWeight")) >= 700
+      ? ok(`小標是粗體 Arial（${txt("markFam")}／${txt("markWeight")}／${txt("markSize")}）——醒目 ✓`)
+      : bad(`小標字體不對：${txt("markFam")}／weight ${txt("markWeight")}`);
+    nospace(txt("markColor")) === nospace(txt("markCellBc"))
+      ? ok(`小標的顏色＝那一區的顏色（${txt("markColor")}）✓`)
+      : bad(`小標色 ${txt("markColor")} ≠ 區塊色 ${txt("markCellBc")}`);
+    txt("markLineOpacity") === "1"
+      ? ok("小標沒有跟著碼位被淡化（淡化搬到內層的 .cp 了 ✓）")
+      : bad(`碼位那一行的 opacity 是 ${txt("markLineOpacity")}，小標會跟著淡化 ✗`);
     txt("bigNePart") === "true"
       ? ok(`詳細大字（${txt("bigColor")}）與下方部件（${txt("partColor")}）不同色＝看得出跨區塊`)
       : bad(`大字與部件同色：${txt("bigColor")}／${txt("partColor")}`);
+    /* ★ 2026-10-16（師父）：「**BMP 要排在 Ext A 前面**」✓——
+       單按碼位排會相反 ✗（Ext A 從 U+3400 起、BMP 從 U+4E00 起 ✓）；
+       這裡同時選了 BMP 與 Ext A（兩個區都在選取內 ✓），第一格必須是 BMP ✓。
+       ⚠ 「BMP 出現在非 BMP 之後」的次數必須是 0 ✓——萬一哪天又改回按碼位排 ✗，這條會抓到 ✓。 */
+    (() => {
+      const first = parseInt(txt("ordFirst"), 16);
+      first >= 0x4e00 && first <= 0x9fff && num("ordBmpAfter") === 0
+        ? ok(`BMP 排在 Ext A 前面（第一格 U+${txt("ordFirst")} ✓，` +
+             `前幾格 ${txt("ordHead")} ✓，BMP 晚於別區的次數 0 ✓）`)
+        : bad(`排序不對：第一格 U+${txt("ordFirst")}、BMP 晚於別區 ${num("ordBmpAfter")} 次`);
+    })();
 
     // 詳細面板的「由哪些部件構成」不能動到中間的格區
     txt("dDetailAfter").toUpperCase() === ("U+" + txt("dPartCp")).toUpperCase()

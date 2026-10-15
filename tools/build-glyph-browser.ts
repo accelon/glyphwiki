@@ -133,9 +133,18 @@ const html = `<!DOCTYPE html>
                       border-radius:50%; background:var(--bc); }
   .cell .g { height:var(--gh); display:flex; align-items:center; justify-content:center; }
   .cell .g svg { width:100%; height:100%; display:block; }
-  .cell .c { height:13px; line-height:13px; font-size:10px; opacity:.62;
+  .cell .c { height:13px; line-height:13px; font-size:10px;
              font-family:ui-monospace,Consolas,monospace; }
-  .cell.sel .c { opacity:.85; }
+  /* ⚠ 碼位的**淡化**從「.c」搬到裡面的「.cp」✓：小標要和碼位同一行（左下角 ✓），
+     但小標要**醒目**（不可以跟著淡化 ✗）——「opacity」會蓋住整個子樹，救不回來 ✗。 */
+  .cell .c .cp { opacity:.62; }
+  .cell.sel .c .cp { opacity:.85; }
+  /* ★ 師父 2026-10-16：碼位**左下角**標「這個字屬於哪一區」✓——
+     Extension＝**英文字母**（A..I ✓）、相容區＝「相」「補」✓、**基本區 2 萬字不標** ✓
+     （「mark:""」✓，見共用層的「BLOCKS」✓）。
+     醒目＝**粗體 Arial** ＋ **自己那一區的顏色**（「--bc」✓，跟字形同色 ✓）＋ 比碼位大一級 ✓。 */
+  .cell .c .blkmark { font-family:Arial,Helvetica,sans-serif; font-weight:700; font-size:11px;
+                      line-height:1; color:var(--bc); margin-right:3px; }
   .sysfont { font-size:calc(var(--gh) * .82); line-height:1; font-family:"Microsoft JhengHei",serif; }
   body.outline .cell svg path, body.outline .mini svg path, body.outline .big svg path {
     fill:none; stroke:currentColor; stroke-width:2.2; stroke-linejoin:round; }
@@ -189,15 +198,10 @@ const html = `<!DOCTYPE html>
       <input id="comp" type="text" placeholder="木+ ／ 口木 ／ 4木日 ／ 4 ／ U+908F">
       <details class="help">
         <summary>運算式說明</summary>
-        <div class="helpBody">
-          <b>木+</b> 木在左　<b>+木</b> 木在右<br>
-          <b>木/</b> 木在上　<b>/木</b> 木在下<br>
-          <b>口木</b> 同時含口與木（往深處找）<br>
-          <b>口口</b> 口出現兩次<br>
-          <b>4木日</b> 扣掉木、日之後剩 4 畫<br>
-          <b>4</b> 4 畫的獨體字<br>
-          <b>U+908F</b> 直接跳到該碼位
-        </div>
+        <!-- ★ 2026-10-16：內容由**共用層的「searchHelpHtml()」**填進來 ✓
+             （與拼形頁的「部件檢字」popup **同一份**說明 ✓，不要在這裡再抄一份 ✗）。
+             填在開頁時（見 glyph-browser-page.js ✓）——探針讀得到 ✓。 -->
+        <div class="helpBody" id="helpBody"></div>
       </details>
       <span class="note" id="compNote"></span>
       <div id="blocks"></div>
@@ -263,3 +267,4 @@ console.log(`  網頁大小 ${(Buffer.byteLength(html) / 1048576).toFixed(2)} MB
 console.log(`  內嵌：kage-engine ${(Buffer.byteLength(engineSrc) / 1024).toFixed(0)} KB、` +
   `tools 模組 ${(Buffer.byteLength(bundleSrc) / 1024).toFixed(1)} KB、` +
   `字形庫 base64 ${(libB64.length / 1048576).toFixed(2)} MB`);
+

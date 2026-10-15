@@ -326,21 +326,21 @@ if (!existsSync(EDGE)) {
     }
     // ---- 剪貼簿：像一般文字那樣複製、貼上 ----
     /copyText="︵街圭日︶"/.test(r)
-      ? ok("複製時頁面確實寫入了構形序列純文字")
-      : bad("頁面沒有寫入構形序列：" + (/copyText=[^ ]*/.exec(r)?.[0] ?? "?") );
+      ? ok("複製時頁面確實寫入了拼形序列純文字")
+      : bad("頁面沒有寫入拼形序列：" + (/copyText=[^ ]*/.exec(r)?.[0] ?? "?") );
     {
       const ct = /copyText=("(?:[^"\\]|\\.)*")/.exec(r);
       const text = ct ? JSON.parse(ct[1]!) : null;
       text === "︵街圭日︶"
-        ? ok(`複製得到構形序列純文字：${JSON.stringify(text)}（不是空白、不是圖）`)
+        ? ok(`複製得到拼形序列純文字：${JSON.stringify(text)}（不是空白、不是圖）`)
         : bad(`複製得到 ${JSON.stringify(text)}，應為 "︵街圭日︶"`);
     }
     /copyHasSvg=true/.test(r) && /copyHasSeq=true/.test(r)
-      ? ok("同時寫入 text/html：序列是內嵌 SVG、屬性仍帶著構形序列（可貼到 Office 等處）")
+      ? ok("同時寫入 text/html：序列是內嵌 SVG、屬性仍帶著拼形序列（可貼到 Office 等處）")
       : bad("text/html 格式不正確（貼到支援 HTML 的地方看不到字形）");
     /pasteInserted=true/.test(r) && /pasteHasSeq=true/.test(r)
-      ? ok("貼上把構形序列寫回 doc")
-      : bad("貼上沒有寫入構形序列");
+      ? ok("貼上把拼形序列寫回 doc")
+      : bad("貼上沒有寫入拼形序列");
     {
       const d = /pasteDelta=(\d+)\/(\d+)/.exec(r);
       const got = Number(d?.[1] ?? -1), want = Number(d?.[2] ?? -1);

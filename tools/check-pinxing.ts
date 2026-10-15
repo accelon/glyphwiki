@@ -9,8 +9,9 @@
  * 形狀照抄 `tools/check-browser.ts`：headless Edge ＋ `--dump-dom` ＋ `<title>PROBE|…>` 回報。
  * 用法: bun run tools/check-pinxing.ts
  */
-import { readFileSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, existsSync, writeFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, join } from "node:path";
 
 const D = "D:/2023/glyphwiki";
 const PAGE = resolve(D, "out/pinxing.html");
@@ -47,7 +48,7 @@ if (!sm) { bad("找不到 script 區塊"); process.exit(1); }
 const script = sm[1]!;
 
 // ---------------------------------------------------------------- 2. 內嵌資料層
-console.log("\n2. 內嵌程式碼：字庫 ＋ 構形序列 ＋ 相容異體");
+console.log("\n2. 內嵌程式碼：字庫 ＋ 拼形序列 ＋ 相容異體");
 {
   const ENGINE_END = "/* ============ 解碼 + 量測";
   const MAIN_START = "/* ============================ 字庫與索引";
@@ -72,7 +73,7 @@ console.log("\n2. 內嵌程式碼：字庫 ＋ 構形序列 ＋ 相容異體");
       ok(`解碼成功：${lib.glyphs.length.toLocaleString()} 字形、${lib.families.length.toLocaleString()} 家族`);
       lib.glyphs.length === 191727 ? ok("字庫 v3（191,727 字形）") : bad(`字形數 ${lib.glyphs.length}`);
 
-      /* 構形序列：規格〈招財進寶〉那條動線上的每一個中間狀態都要解得開 */
+      /* 拼形序列：規格〈招財進寶〉那條動線上的每一個中間狀態都要解得開 */
       const steps: [string, boolean][] = [
         ["邏羅", false],        /* 只有基字與舊部件（還不是合法序列） */
         ["邏羅寶", true],
@@ -153,6 +154,82 @@ catch (e) { bad("語法錯誤：" + (e as Error).message); }
 const b64 = /var LIB_B64 = "([^"]*)"/.exec(script)![1]!;
 /^[A-Za-z0-9+/]+={0,2}$/.test(b64) && b64.length % 4 === 0
   ? ok(`字庫 base64 合法（${(b64.length / 1048576).toFixed(2)} MB）`) : bad("base64 格式有問題");
+
+/* ★ 2026-10-16（師父回報「微信內建瀏覽器打開無法載入庫存拼形、輸入也沒動作」）：
+   ① 解壓**不可以只靠 `DecompressionStream`** ✗——微信內建瀏覽器（舊 X5／iOS 16.4 以前）
+      **沒有它** ✓，沒有後備就是整頁打不開 ✗，所以頁面要自己帶一份**純 JS 的 DEFLATE** ✓。
+   ② 最底部要留一行白話的指示 ✓（師父指定的字，一字不改 ✓）。
+   ③ 開頁看門狗要真的是**獨立的一支 script** ✓——主 script 若語法就掛掉（舊引擎不認新語法 ✓），
+      同一支裡面的 catch 根本不會執行 ✗，只有另一支跑得起來 ✓。 */
+/function inflateGzip\(raw\)/.test(script) && /function gunzipBytes\(raw\)/.test(script)
+  ? ok("頁面自帶純 JS 的 gzip 解壓（不靠 DecompressionStream；微信內建瀏覽器也解得開 ✓）")
+  : bad("沒有純 JS 的解壓後備——微信內建瀏覽器會整頁解不開");
+html.includes("微信打開看不到的話，用系統自帶的瀏覽器打開")
+  ? ok("最底部有微信的指示行（師父指定的字 ✓）")
+  : bad("底部沒有「微信打開看不到的話，用系統自帶的瀏覽器打開」");
+(html.match(/<script>/g) || []).length >= 2 && /__BOOTOK__/.test(html)
+  ? ok(`開頁看門狗是獨立的一支 script（頁面共 ${(html.match(/<script>/g) || []).length} 支；主 script 掛掉也跑得起來 ✓）`)
+  : bad("沒有獨立的開頁看門狗");
+/* ★ 大字裡的每一層都用**百分比**跟著 `.stage` ✓（寫死 200 會蓋掉窄螢幕的縮放 ✗，
+   大字就溢出、壓到部件清單上 ✗——這正是師父回報的「重疊」✓）。 */
+[".stage > svg", ".stage .boxlayer", ".stage .hllayer"].every((sel) =>
+  new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+    " \\{ position:absolute; left:0; top:0; width:100%; height:100%").test(html))
+  ? ok("大字的三層（字形／框／塗色）都用 100% 跟著 .stage（不會再寫死 200）")
+  : bad("大字有某一層寫死了尺寸——窄螢幕會溢出壓到部件清單");
+/calc\(var\(--chip\) \* 3 \+ 8px\)/.test(html)
+  ? ok("部件清單的最小寬度＝三個方格（吃 --chip ✓；窄螢幕縮的是方格、不是大字 ✓）")
+  : bad("部件清單的最小寬度不是以 --chip 算出來的");
+/* ★ 2026-10-16（師父）：「合理拼形」→ 構形序 →「**拼形序**」✓（與項目 pinxing 統一 ✓）、
+   「表意描述序（IDS）」→「**表意描述序**」✓。
+   兩個新名字都要真的在產出物裡 ✓（標籤與提示是 JS 產生的，靜態檢查只擋「整支不見了」✗）。 */
+/表意描述序/.test(script) && /拼形序/.test(script)
+  ? ok(`新術語都在產出物裡（拼形序 ${(script.match(/拼形序/g) || []).length} 處、` +
+       `表意描述序 ${(script.match(/表意描述序/g) || []).length} 處 ✓）`)
+  : bad("產出物裡找不到「拼形序」／「表意描述序」——建置沒有跟上 ✗");
+/* 舊說法只允許留在「師父說要改」的那幾句註解裡 ✓（UI 字串與其他註解都應該改乾淨 ✓）。
+   ⚠ 三個舊名一起算 ✓：「合理拼形」（第 140 ✓）、「構形序」（第 143 輪全域改成「拼形序」✓）、
+      「構字式」（第 144 輪全域改成「表意描述序」✓）——產出物裡只該剩下改名記錄那幾行 ✓。 */
+(html.match(/合理拼形/g) || []).length <= 3 && (html.match(/構字式/g) || []).length <= 4 &&
+  (html.match(/構形序/g) || []).length <= 3
+  ? ok("舊說法只剩「師父說要改」的那幾句註解（畫面與其他註解都改乾淨 ✓）")
+  : bad(`舊說法還在產出物裡：合理拼形 ${(html.match(/合理拼形/g) || []).length} 處、` +
+        `構字式 ${(html.match(/構字式/g) || []).length} 處、` +
+        `構形序 ${(html.match(/構形序/g) || []).length} 處`);
+
+/* ★ 2026-10-16（師父）：「候選字依 unicode 分區使用不同顏色，**配色同 glyph-browser.html**」✓
+   → 調色盤（`BLOCKS` ＋ `blockIndexOf`／`colorOfBlock`／`colorOfCp`／`colorOfGlyph`）
+     搬進共用層 `tools/glyph-common-page.js` ✓，而且是**兩頁逐字同一份** ✓。
+   ⚠ 兩頁各寫一份就等著「A 頁改了、B 頁沒改」✗（這個專案吃過那個虧 ✓）——
+     所以驗收直接**比對兩份產出物裡的調色盤原始碼** ✓，不是只比對數字 ✓。 */
+{
+  const paletteOf = (s: string) =>
+    (/var BLOCKS = \[[\s\S]*?\nfunction colorOfGlyph\(i\) \{[\s\S]*?\n\}/.exec(s) || [""])[0]!;
+  const mine = paletteOf(script);
+  const nBlocks = (script.match(/var BLOCKS = \[/g) || []).length;
+  nBlocks === 1
+    ? ok("本頁的區塊表只有一份（沒有在頁面裡另外再抄一份 ✓）")
+    : bad(`本頁出現 ${nBlocks} 份 var BLOCKS（共用層那一份之外又多抄了 ✗）`);
+  const otherPage = resolve(D, "out/glyph-browser.html");
+  if (!existsSync(otherPage)) {
+    bad("找不到 out/glyph-browser.html——兩頁要同一份調色盤，無從比對");
+  } else {
+    const osc = /<script>([\s\S]*?)<\/script>/.exec(readFileSync(otherPage, "utf8"))![1]!;
+    const theirs = paletteOf(osc);
+    mine.length > 500 && mine === theirs
+      ? ok(`區塊調色盤在兩頁是**逐字同一份**（${mine.split("\n").length} 行；` +
+           `改一邊就會被這條擋下來 ✓）`)
+      : bad(`兩頁的區塊調色盤不一致（本頁 ${mine.length} 字、另一頁 ${theirs.length} 字）` +
+            `——候選字的顏色會跟字集瀏覽頁不同`);
+    /* ★ 2026-10-16：**檢字運算子的用法也只有一份** ✓——拼形頁的 popup 與字集瀏覽頁的
+       「運算式說明」是同一張表 ✓（只有 `U+908F` 那一行兩頁不同 ✓，見共用層的註解 ✓）。 */
+    const rowsOf = (s: string) => (/var SEARCH_HELP_ROWS = \[[\s\S]*?\n\];/.exec(s) || [""])[0]!;
+    const rowsA = rowsOf(script), rowsB = rowsOf(osc);
+    rowsA.length > 100 && rowsA === rowsB
+      ? ok(`檢字運算子的說明在兩頁也是**逐字同一份**（${rowsA.split("\n").length} 行 ✓）`)
+      : bad(`兩頁的運算子說明不一致（本頁 ${rowsA.length} 字、另一頁 ${rowsB.length} 字）`);
+  }
+}
 
 // ---------------------------------------------------------------- 4. headless 實跑
 console.log("\n4. headless 瀏覽器：逐步模擬〈招財進寶〉動線");
@@ -240,6 +317,13 @@ if (!existsSync(EDGE)) {
       out.push("hasSlider=" + !!document.getElementById("wscale"));
       out.push("boxMode=" + encodeURIComponent(document.getElementById("boxMode").getAttribute("data-mode")));
       out.push("boxLabel=" + encodeURIComponent(document.getElementById("boxMode").textContent));
+      /* ★ 2026-10-16（師父）：**新客人第一次打開**的樣子 ✓（這支實跑用的是乾淨的
+         「--user-data-dir」✓，所以「還原」不會蓋掉這些起始值 ✓）：
+         輸入區空白 ✓、筆劃粗細 100 ✓、**字框預設不顯示** ✓、中間部件不勾 ✓。 */
+      out.push("bootSeq=" + encodeURIComponent(seqEl().value));
+      out.push("bootW=" + document.getElementById("wscale").value);
+      out.push("bootMid=" + document.getElementById("showMid").checked);
+      out.push("bootLsSeq=" + JSON.stringify(localStorage.getItem("pinxing.seq")));
       /* 清空按鈕已經移除（使用者的要求） */
       out.push("noClear=" + !document.getElementById("clearSeq"));
       /* 筆劃粗細與字框跟輸入區同一張卡（現在那張卡就是 header.top） */
@@ -285,10 +369,12 @@ if (!existsSync(EDGE)) {
     },
     /* --- 步驟 4：點部件序列的「羅」→ 邏羅（指名要換掉羅） --- */
     function () { out.push("Dchip=" + chipCh("羅")); snap("D"); },
-    /* --- 步驟 5：輸入「寶」→ 邏羅寶（合法構形序列，畫組出來的形） --- */
+    /* --- 步驟 5：輸入「寶」→ 邏羅寶（合法拼形序列，畫組出來的形） --- */
     function () {
       setSeq("邏羅寶"); snap("E");
       out.push("Epaths=" + document.querySelectorAll("#big svg path").length);
+      /* ★ 師父 2026-10-16：「合理拼形」改為「**拼形序**」✓（中間一度叫「構形序」✓，同日統一 ✓）——標籤是客人第一眼看到的字 ✓ */
+      out.push("Elbl=" + encodeURIComponent(document.getElementById("seqlbl").textContent));
       out.push("EcapHasBao=" + /寶/.test(document.getElementById("seqNote").textContent));
       out.push("Eowner=" + encodeURIComponent(String(seqOwnerChar(lastEval, "邏羅寶"))) +
         " cur=" + document.getElementById("seq").selectionStart +
@@ -320,6 +406,10 @@ if (!existsSync(EDGE)) {
         out.push("FshowM=" + b.getAttribute("data-mode"));
         out.push("FshowN=" + document.querySelectorAll("#big .cbox").length);
         out.push("FmidHas=" + (mid ? "yes" : "MISSING"));
+        /* ★ 2026-10-16：預設改成「**不顯示字框**」✓（師父：「缺省不要打開字框顯示」✓）——
+           所以這裡先把它**打開** ✓，下面那兩次點擊才有固定的起點
+           （不然「Fnone」與「Fback」會對調 ✗）。 */
+        while (b.getAttribute("data-mode") === "none") b.click();
         if (mid) { mid.checked = true; mid.dispatchEvent(new Event("change")); }
         modeInfo("Fdeep");
         if (mid) { mid.checked = false; mid.dispatchEvent(new Event("change")); }
@@ -555,7 +645,7 @@ if (!existsSync(EDGE)) {
       snap("K");
       out.push("Kterm=" + encodeURIComponent(SEARCH ? SEARCH.term : ""));
       /* 庫存每一組都要「帶得進輸入區、畫得出東西」——
-         ★ 第 127 輪：合文那兩列送的是 **IDS**（「data-send」✓），其餘送構形序（「data-seq」✓）。 */
+         ★ 第 127 輪：合文那兩列送的是 **IDS**（「data-send」✓），其餘送拼形序（「data-seq」✓）。 */
       var rows2 = document.querySelectorAll("#stock .stockrow");
       var bad = [];
       for (var i = 0; i < rows2.length; i++) {
@@ -600,7 +690,7 @@ if (!existsSync(EDGE)) {
       setSeq("進辶");                      /* 讀不成拼形式 → 部件檢字 */
       out.push("link1=" + encodeURIComponent(document.getElementById("toBrowser").dataset.comp || "") +
         " txt=" + encodeURIComponent(document.getElementById("toBrowser").textContent));
-      setSeq("邏羅寶");                    /* 合理拼形：帶的是最後一個字 */
+      setSeq("邏羅寶");                    /* 拼形序：帶的是最後一個字 */
       out.push("link2=" + encodeURIComponent(document.getElementById("toBrowser").dataset.comp || ""));
       setSeq("木");                        /* 單字：帶它自己 */
       out.push("link3=" + encodeURIComponent(document.getElementById("toBrowser").dataset.comp || ""));
@@ -660,7 +750,7 @@ if (!existsSync(EDGE)) {
        的引用；推不出來才判不合法。
        註：這個探針字串是樣板字串，**留言裡不可以出現反引號**（會提前結束字串）。 */
     function () {
-      /* 「報幸土业」：新內容 土业 讀不成構形序列 → 仍走橫向串接（warn「不是原地換部件」） */
+      /* 「報幸土业」：新內容 土业 讀不成拼形序列 → 仍走橫向串接（warn「不是原地換部件」） */
       setSeq("報幸土业");
       snap("L");
       out.push("Lmsg=" + encodeURIComponent(document.getElementById("msg").textContent));
@@ -824,7 +914,7 @@ if (!existsSync(EDGE)) {
       out.push("PnonBmp=" + (nbStage ? encodeURIComponent(nbData) + ",nonBmp=" + isNonBmp : "MISSING"));
       out.push("PnonBmpCap=" + encodeURIComponent(nbCap ? nbCap.textContent : ""));
       /* ★ 師父第 122 輪：**輸入區要接受 Unicode IDS（U+2FF0–2FFF）** ✓ →
-         有的話**推薦更好的構形序** ✓；而且兩個常見合文的 IDS 要放在**庫存區** ✓（一點就看到 ✓）。 */
+         有的話**推薦更好的拼形序** ✓；而且兩個常見合文的 IDS 要放在**庫存區** ✓（一點就看到 ✓）。 */
       /* ★ 第 126 輪起：IDS 只給**文字推薦** ✓（美形留到點下去才出現 ✓），
          所以推薦序要從「#sugRow .seqchip」讀 ✓，不再是並排那格 ✓。 */
       setSeq("⿰木⿳金⿰水火土");
@@ -842,14 +932,17 @@ if (!existsSync(EDGE)) {
         ",stageHidden=" + String(!!document.getElementById("sugStage").hidden) +
         ",cap=" + encodeURIComponent((document.getElementById("sugCap") || {}).textContent || ""));
       out.push("PidsNote=" + encodeURIComponent(document.getElementById("bigNote").textContent));
+      /* ★ 師父 2026-10-16：「構字式（IDS）」改為「**表意描述序**」✓——
+         標籤與下面那行「人話轉寫」的開頭都要跟著改 ✓（同一個東西兩個名字＝客人會以為是兩件事 ✗）。 */
+      out.push("PidsLbl=" + encodeURIComponent(document.getElementById("seqlbl").textContent));
       if (idsChips.length) idsChips[0].click();
       out.push("PidsClick=" + encodeURIComponent(seqEl().value + " mode=" + S().mode));
       var idRows = document.querySelectorAll("#stock .stockrow.ids");
       out.push("PidsStock=" + idRows.length + "," +
         encodeURIComponent(Array.prototype.map.call(idRows, function (r) { return r.getAttribute("data-ids"); }).join(" ")));
       /* ★ 師父第 136 輪：**魔術棒 🪄**（在「存起來」左邊 ✓）——
-         有建議的構形序時才出現 ✓；點一下＝把下一個建議填進輸入區 ✓（不把序寫在畫面上 ✓）。
-         ⚠ 先重貼一次 IDS：上面那一列 chip 已經被點過（輸入區變成構形序了），
+         有建議的拼形序時才出現 ✓；點一下＝把下一個建議填進輸入區 ✓（不把序寫在畫面上 ✓）。
+         ⚠ 先重貼一次 IDS：上面那一列 chip 已經被點過（輸入區變成拼形序了），
            要回到「剛貼 IDS」的狀態才量得到魔杖本身 ✓。 */
       setSeq("⿰木⿳金⿰水火土");
       var wandEl = document.getElementById("wand");
@@ -885,7 +978,7 @@ if (!existsSync(EDGE)) {
       var idsChips2 = document.querySelectorAll("#sugRow .seqchip");
       out.push("Pids2=" + encodeURIComponent(idsChips2.length ? (idsChips2[0].getAttribute("data-sug") || "") : "MISSING") +
         ",mode=" + S().mode);
-      /* ★ 第 123 輪（師父的願景 ✓）：貼一個**真的對應到某個字**的構字式，要**立刻畫出來** ✓——
+      /* ★ 第 123 輪（師父的願景 ✓）：貼一個**真的對應到某個字**的表意描述序，要**立刻畫出來** ✓——
          用字庫的「comp」（葉序 ✓）反查 ✓，不必新增資料 ✓。 */
       setSeq("⿰女子");
       out.push("PidsChar=" + encodeURIComponent(document.getElementById("bigNote").textContent) + ",mode=" + S().mode +
@@ -895,8 +988,8 @@ if (!existsSync(EDGE)) {
         ",cap=" + encodeURIComponent((document.getElementById("sugCap") || {}).textContent || ""));
       /* ★ 第 124 輪（師父的三個要求 ✓）：
          ① 「拆成 IDS」按鈕 ✓（客人不會打 IDC ✓）
-         ② IDS 的組字**故意按 IDC 等比分配**（醜 ✓），右邊並排構形序（美 ✓）
-         ③ 構形序那格可點、點下**取代 IDS** ✓（用 124 那條已有的點擊斷言驗 ✓） */
+         ② IDS 的組字**故意按 IDC 等比分配**（醜 ✓），右邊並排拼形序（美 ✓）
+         ③ 拼形序那格可點、點下**取代 IDS** ✓（用 124 那條已有的點擊斷言驗 ✓） */
       setSeq("好");
       var wandI = document.getElementById("wand");
       out.push("PwandIdle=" + (wandI ? String(!!wandI.hidden) : "MISSING") +
@@ -910,7 +1003,7 @@ if (!existsSync(EDGE)) {
       setSeq("⿰木⿳金⿰水火土");
       out.push("Pnaive=" + document.querySelectorAll("#big svg path").length +
         "|" + encodeURIComponent(document.getElementById("sugCap").textContent));
-      /* ★ 第 125 輪：**任意 IDS 都要能建議構形序** ✓——師父的例子「⿰木垚」→「桂圭垚」✓ */
+      /* ★ 第 125 輪：**任意 IDS 都要能建議拼形序** ✓——師父的例子「⿰木垚」→「桂圭垚」✓ */
       setSeq("⿰木垚");
       var lStage = document.getElementById("sugStage");
       var lCap = document.getElementById("sugCap");
@@ -924,6 +1017,163 @@ if (!existsSync(EDGE)) {
       if (lChips.length) lChips[0].click();
       out.push("PchipsClick=" + encodeURIComponent(seqEl().value + ",mode=" + S().mode +
         ",bigPaths=" + document.querySelectorAll("#big svg path").length));
+    },
+    /* --- ★ 2026-10-16：**手機的版面**（師父回報的兩件事 ✓）---
+       ① 大字裡的每一層要**跟著「.stage」**（不是寫死 200 ✗）：把 #big 改成 150 量一次 ✓
+       ② 大字與部件清單**不可以重疊** ✓：硬把整列縮到 300px（＝窄手機的處境 ✓），
+          部件清單要整塊換到下一行、兩塊矩形不相交 ✓
+       ③ 微信那條路（沒有 DecompressionStream ✓）：純 JS 的解壓要解得開同一包字庫 ✓
+       ⚠ 探針是樣板字串，留言裡**不可以用反引號** ✗、也不可以出現錢字號加左大括號 ✗。 */
+    function () {
+      setSeq("邏羅寶貝");
+      var bigEl = document.getElementById("big");
+      var w0 = bigEl.style.width, h0 = bigEl.style.height;
+      bigEl.style.width = "150px"; bigEl.style.height = "150px";
+      var layerBase = bigEl.clientWidth;
+      var sels = ["#big > svg", "#big .boxlayer", "#big .hllayer"], got = [];
+      for (var i = 0; i < sels.length; i++) {
+        var e = document.querySelector(sels[i]);
+        got.push(e ? Math.round(e.getBoundingClientRect().width) : -1);
+      }
+      bigEl.style.width = w0; bigEl.style.height = h0;
+      /* 三層都要**等於大字自己的內容寬**（＝跟著大字走 ✓；不是寫死的 200 ✗）。
+         大字的框線是 1px、又是 border-box ✓，所以內容寬會少 2px ✓。 */
+      out.push("Xlayer150=" + got.join(",") +
+        " XlayerFit=" + (got[0] === layerBase && got[1] === layerBase && got[2] === layerBase ? 1 : 0) +
+        " Xstage150=" + layerBase);
+      var sw = document.querySelector(".stagewrap");
+      var w1 = sw.style.width;
+      sw.style.width = "300px";
+      var bR = bigEl.getBoundingClientRect(), sR = document.querySelector(".side").getBoundingClientRect();
+      var ovw = Math.min(bR.right, sR.right) - Math.max(bR.left, sR.left);
+      var ovh = Math.min(bR.bottom, sR.bottom) - Math.max(bR.top, sR.top);
+      out.push("Xrow300=" + Math.round(ovw > 0 && ovh > 0 ? ovw * ovh : 0) +
+        " Xbelow=" + (sR.top >= bR.bottom - 1 ? 1 : 0) +
+        " XbigW=" + Math.round(bR.width) + " XsideW=" + Math.round(sR.width));
+      sw.style.width = w1;
+      var saved = window.DecompressionStream;
+      try {
+        window.DecompressionStream = undefined;
+        var L = decodeLibrary(inflateGzip(b64ToBytes(LIB_B64)));
+        out.push("Xpure=" + L.glyphs.length);
+      } catch (e2) { out.push("Xpure=ERR:" + e2.message); }
+      window.DecompressionStream = saved;
+      setSeq("");
+    },
+    /* --- ★ 2026-10-16：**候選字照 Unicode 分區上色**（師父：「配色同 glyph-browser.html」✓）---
+       ① 12 個區塊的調色盤逐個問一次 ✓（含一個落在區外的碼位＝中性灰 ✓）
+       ② 候選格真的**帶著自己那一格的顏色** ✓（「--bc」＋ 算出來的 color／fill ✓）
+       ⚠ 探針是樣板字串，留言裡不可以用反引號 ✗。 */
+    function () {
+      var probeCps = [0x4E00, 0x3400, 0x20000, 0x2A700, 0x2B740, 0x2B820, 0x2CEB0,
+                      0x30000, 0x31350, 0x2EBF0, 0xF900, 0x2F800, 0x0041];
+      var pal = [];
+      for (var p = 0; p < probeCps.length; p++) {
+        pal.push(probeCps[p].toString(16).toUpperCase() + "=" + colorOfCp(probeCps[p]));
+      }
+      out.push("Xpalette=" + encodeURIComponent(pal.join(" ")));
+      setSeq("進辶");                       /* 1,131 個候選，橫跨 Ext A／BMP／Ext B ✓ */
+      /* ⚠ 前 96 個（預設只看 96 格）**全部落在同一區** ✗——照碼位排序時前面都是 Ext A ✓，
+         只看那 96 格會驗不出「跨區不同色」✗。所以這裡把候選全部畫出來 ✓
+         （跟本檔前面「點候選裡的邏」那一步用同一個做法 ✓），再抽樣比對 ✓。 */
+      candShown = SEARCH.cps.length;
+      renderSearch();
+      var cells = document.querySelectorAll("#cands .cell.cand");
+      var pairs = [], seen = {};
+      for (var i = 0; i < cells.length; i++) {
+        seen[(cells[i].style.getPropertyValue("--bc") || "").trim()] = 1;
+        if (i % 10) continue;
+        var cp = Number(cells[i].getAttribute("data-cp"));
+        var bc = (cells[i].style.getPropertyValue("--bc") || "").trim();
+        var gEl = cells[i].querySelector(".g");
+        var pathEl = cells[i].querySelector("svg path");
+        var gCol = gEl ? getComputedStyle(gEl).color : "";
+        var fill = pathEl ? getComputedStyle(pathEl).fill : "";
+        var bd = getComputedStyle(cells[i]).borderTopColor;
+        pairs.push(cp + ":" + bc + ":" + gCol + ":" + fill + ":" + bd);
+      }
+      out.push("XcandN=" + document.querySelectorAll("#cands .cell").length);
+      out.push("XcandColors=" + Object.keys(seen).length);
+      /* ★ 2026-10-16：碼位**左下角**的小標（所屬區 ✓）——每 25 格抽一格，記下「碼位:小標」✓；
+         再單獨把第一個有標的格子的**算出來的樣式**帶出來 ✓（字體／粗細／顏色／淡化 ✓）。 */
+      var marks = [], markStyle = "";
+      for (var m = 0; m < cells.length; m += 25) {
+        var mk = cells[m].querySelector(".c .blkmark");
+        var cLine = cells[m].querySelector(".c");
+        marks.push(Number(cells[m].getAttribute("data-cp")) + ":" + (mk ? mk.textContent : "-"));
+        if (!markStyle && mk) {
+          var ms = getComputedStyle(mk);
+          markStyle = Number(cells[m].getAttribute("data-cp")) + "|" + ms.fontFamily + "|" + ms.fontWeight +
+            "|" + ms.fontSize + "|" + ms.color + "|" +
+            cells[m].style.getPropertyValue("--bc").trim() + "|" + getComputedStyle(cLine).opacity;
+        }
+      }
+      out.push("XcandMarks=" + encodeURIComponent(marks.join(" ")));
+      out.push("XmarkStyle=" + encodeURIComponent(markStyle));
+      /* ⚠ 每一格用「|」接起來，**不要用空白** ✗：算出來的 fill 在 Chrome 是
+         「rgb(255, 115, 115)」**帶空白** ✓，用空白分隔會被切成一堆碎片 ✗（踩過 ✓）。 */
+      out.push("XcandPairs=" + encodeURIComponent(pairs.join("|")));
+      setSeq("");
+    },
+    /* --- ★ 2026-10-16（師父）：「**部件檢字狀態時，要顯示運算子的用法**
+       （滑鼠 hover 到「部件檢字」 popup 用法）」✓ --- */
+    function () {
+      var lbl = document.getElementById("seqlbl");
+      var help = document.getElementById("lblHelp");
+      function hover() { lbl.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false })); }
+      /* ① 部件檢字（進辶）→ 滑過去要彈出來 ✓，而且**不推動版面** ✓ */
+      setSeq("進辶");
+      var y0 = document.getElementById("big").getBoundingClientRect().top;
+      hover();
+      var y1 = document.getElementById("big").getBoundingClientRect().top;
+      out.push("HlblFind=" + encodeURIComponent(lbl.textContent));
+      out.push("Hshown=" + (help && help.classList.contains("on") ? 1 : 0));
+      out.push("Hdisp=" + (help ? getComputedStyle(help).display : "?"));
+      out.push("Hpos=" + (help ? getComputedStyle(help).position : "?"));
+      out.push("Hshift=" + Math.round(Math.abs(y1 - y0)));
+      out.push("Htext=" + encodeURIComponent(help ? help.textContent.replace(/\s+/g, " ").trim() : ""));
+      /* ② 換到**拼形序**（浮層還開著 ✓）→ 內容要**當場換成專利那一句** ✓
+         ★ 師父 2026-10-16：「最下方『拼形序依據 中国发明专利 201610984608.1 号』
+           移到上方『構形序』的 hover 說明」✓ */
+      setSeq("邏羅寶");
+      out.push("HafterCompose=" + (help && help.classList.contains("on") ? 1 : 0));
+      out.push("HafterText=" + encodeURIComponent(help ? help.textContent.replace(/\s+/g, " ").trim() : ""));
+      out.push("HlblCompose=" + encodeURIComponent(lbl.textContent));
+      /* ③ 空白（頁名「剎那拼形」）滑過去也要看得到那一句 ✓（搬上來之後才找得到 ✓） */
+      setSeq("");
+      hover();
+      out.push("Hempty=" + (help && help.classList.contains("on") ? 1 : 0));
+      out.push("HemptyText=" + encodeURIComponent(help ? help.textContent.replace(/\s+/g, " ").trim() : ""));
+      out.push("HlblEmpty=" + encodeURIComponent(lbl.textContent));
+      /* 頁尾（授權宣告）：那一句搬走之後**不該還在** ✓（其餘照舊 ✓） */
+      out.push("Hfoot=" + encodeURIComponent(
+        (document.querySelector("footer.credits") || {}).textContent.replace(/\s+/g, " ").trim()));
+      /* ④ 「U+908F」那條說明要**真的有用** ✓（以前這一頁沒接 ✗） */
+      setSeq("U+908F");
+      var st = S();
+      out.push("Hcp=" + st.candCount + "/" + encodeURIComponent(st.candTerm) + "/" +
+        encodeURIComponent((document.getElementById("candNote").textContent || "").slice(0, 18)));
+      setSeq("");
+    },
+    /* --- ★ 2026-10-16：**留下一組已知的狀態**，下一次開頁要自己還原 ✓
+       （師父：「輸入區的文字存進 localStorage，客人不必每次重新輸入 ✓；
+        字框顯示、中間部件、筆劃粗細也都存 ✓」）。
+       這一步之後本檔會**用同一個 user-data-dir 再開一次頁** ✓＝「客人關掉再打開」✓。 --- */
+    function () {
+      setSeq("邏羅寶");                              /* 輸入區的文字 → localStorage ✓ */
+      var w = document.getElementById("wscale");
+      w.value = "150";
+      w.dispatchEvent(new Event("input"));           /* 筆劃粗細 150 ✓ */
+      var b = document.getElementById("boxMode");
+      if (b.getAttribute("data-mode") === "none") b.click();     /* 字框：顯示 ✓ */
+      var mid = document.getElementById("showMid");
+      if (mid && !mid.checked) { mid.checked = true; mid.dispatchEvent(new Event("change")); }
+      out.push("Zseq=" + encodeURIComponent(document.getElementById("seq").value));
+      out.push("ZlsSeq=" + encodeURIComponent(localStorage.getItem("pinxing.seq") || ""));
+      out.push("ZlsW=" + encodeURIComponent(localStorage.getItem("pinxing.wscale") || ""));
+      out.push("ZlsBox=" + encodeURIComponent(localStorage.getItem("pinxing.boxmode") || ""));
+      out.push("ZlsMid=" + encodeURIComponent(localStorage.getItem("pinxing.showmid") || ""));
+      out.push("ZwLbl=" + encodeURIComponent(document.getElementById("wscaleV").textContent));
     },
     function () { out.push("done=1"); report(out.join(" ")); }
   ];
@@ -952,8 +1202,16 @@ if (!existsSync(EDGE)) {
   writeFileSync(diagPath, html.replace("</body>", probe + "</body>"));
   const STEP_COUNT = (probe.match(/^    function \(\) \{/gm) || []).length;
 
+  /* ★ 2026-10-16：**用一個乾淨的設定檔目錄**（`--user-data-dir`）✓——
+     這一頁現在會把「輸入區的文字／字框／中間部件／筆劃粗細」記在 localStorage ✓，
+     用預設的 profile 會讓**上一次跑完留下的狀態**變成下一次的起始狀態 ✗
+     （起始斷言就會飄 ✓，而且會動到使用者自己的瀏覽器設定 ✗）。
+     同一個目錄**連續跑兩次**＝「客人關掉再打開」✓（見本段後面的第二次實跑 ✓）。 */
+  const profile = mkdtempSync(join(tmpdir(), "pinxing-check-"));
+
   const proc = Bun.spawnSync([
-    EDGE, "--headless=new", "--disable-gpu", "--virtual-time-budget=150000",
+    EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + profile,
+    "--virtual-time-budget=150000",
     "--window-size=460,1500", "--screenshot=" + shotPath,
     "--dump-dom", "file:///" + diagPath.replace(/\\/g, "/"),
   ], { stdout: "pipe", stderr: "ignore" });
@@ -1012,9 +1270,204 @@ if (!existsSync(EDGE)) {
     txt("candHidden") === "true" ? ok("沒有候選時整段候選字收起來（版面緊湊）")
                                  : bad("候選區一直顯示著");
     txt("hasSlider") === "true" ? ok("有筆劃粗細控制") : bad("沒有筆劃粗細控制");
-    txt("boxMode") === "show" && /字框：顯/.test(txt("boxLabel"))
-      ? ok(`字框的初始狀態：${txt("boxLabel")}（data-mode=${txt("boxMode")}）`)
-      : bad(`框模式初始 ${txt("boxMode")}／${txt("boxLabel")}`);
+    /* ★ 2026-10-16（師父）：「最下方『拼形序依據 中国发明专利 201610984608.1 号』
+       移到上方『構形序』的 hover 說明」✓——所以**頁尾不該再有那一句** ✓
+       （其餘頁尾照舊：基於開源字庫、微信、開發記錄 ✓）。 */
+    (() => {
+      const foot = txt("Hfoot").replace(/\s+/g, "");
+      !foot.includes("专利") && foot.includes("Glyphwiki+Kage") && foot.includes("wxx68174671") &&
+        foot.includes("開發記錄")
+        ? ok(`頁尾只剩「${txt("Hfoot").slice(0, 34)}…」——專利那一句已經搬到 hover 說明 ✓`)
+        : bad(`頁尾不對：${txt("Hfoot")}`);
+    })();
+    /* ★ 2026-10-16（師父）：「**缺省不要打開字框顯示**」✓——
+       新客人（乾淨的 localStorage）第一次打開＝輸入區空白 ✓、粗細 100 ✓、
+       **字框：隱** ✓、中間部件不勾 ✓。 */
+    txt("boxMode") === "none" && /字框：隱/.test(txt("boxLabel"))
+      ? ok(`字框的初始狀態：${txt("boxLabel")}（data-mode=${txt("boxMode")}）——**預設不顯示** ✓（師父 2026-10-16 ✓）`)
+      : bad(`框模式初始 ${txt("boxMode")}／${txt("boxLabel")}（應該預設「字框：隱」✗）`);
+    txt("bootSeq") === "" && txt("bootW") === "100" && txt("bootMid") === "false"
+      ? ok("新客人第一次打開：輸入區空白 ✓、筆劃 100% ✓、中間部件不勾 ✓")
+      : bad(`起始狀態不對：seq=${JSON.stringify(txt("bootSeq"))} w=${txt("bootW")} mid=${txt("bootMid")}`);
+    txt("bootLsSeq") === "null" || txt("bootLsSeq") === '""'
+      ? ok("乾淨的設定檔目錄（起始沒有任何 localStorage 殘留 ✓）")
+      : bad(`起始就有殘留的 localStorage：pinxing.seq=${txt("bootLsSeq")}`);
+    /* ★ 2026-10-16（師父）：**手機上大字優先** ✓——
+       ① 大字裡的每一層都要跟著 `.stage`（不是寫死 200 ✗）：
+          以前 `.stage > svg` 寫死 200px，那條規則在檔案裡比 media query 更後面，
+          會蓋掉窄螢幕的縮放 ✗ → 大字溢出自己的框、壓到右邊的部件清單上 ✗。 */
+    /* ⚠ `.stage` 有 1px 框線、`box-sizing:border-box` ✓，所以三層的寬會是內容寬（150−2＝148 ✓）；
+       這一條驗的是「**三層都等於大字自己的內容寬**」✓（以前是寫死的 200 ✗＝溢出 ✓）。 */
+    num("XlayerFit") === 1
+      ? ok(`大字裡的每一層（字形／框／塗色層）都跟著「.stage」縮放（${txt("Xlayer150")}` +
+           ` ＝ 大字內容寬 ${num("Xstage150")}px ✓；不是寫死的 200）`)
+      : bad(`大字的某一層沒有跟著縮放：${txt("Xlayer150")} vs 大字內容寬 ${num("Xstage150")}`);    /* ② 不夠寬時，部件清單要**整塊換到下一行** ✓，而且兩塊矩形不相交 ✓（＝不可能重疊 ✓）。 */
+    num("Xrow300") === 0 && num("Xbelow") === 1 && num("XbigW") === 200
+      ? ok(`窄版面（整列 300px）部件清單整塊換到下一行、不與大字重疊（重疊 0 px²、` +
+           `大字仍是 ${num("XbigW")}px、清單吃滿 ${num("XsideW")}px ✓）`)
+      : bad(`窄版面會重疊：重疊 ${num("Xrow300")} px²、換行=${num("Xbelow")}、大字 ${num("XbigW")}px`);
+    /* ③ 微信那條路：**沒有 `DecompressionStream` 也要解得開** ✓（頁面自帶純 JS 的 DEFLATE ✓）。 */
+    num("Xpure") === 191727
+      ? ok("沒有 DecompressionStream 也解得開同一包字庫（純 JS 的 gzip 後備 → 191,727 字形 ✓）")
+      : bad(`純 JS 的解壓後備失敗：${txt("Xpure")}`);
+
+    /* ★ 2026-10-16（師父）：「**候選字依 unicode 分區使用不同顏色，配色同 glyph-browser.html**」✓
+       ⚠ 驗收自己**重算一次**調色盤（不呼叫頁面的 `colorOfCp` ✗），
+          這樣才驗得出「頁面真的照這個公式上色」✓，而不是兩邊一起錯 ✓。 */
+    const HUE_STEP = 30, SAT = 0.55, VAL = 1.0;
+    const NEUTRAL = "rgb(146,152,162)";
+    const hsvCss = (h: number, s: number, v: number): string => {
+      h = ((h % 360) + 360) % 360;
+      const c = v * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = v - c;
+      let r = 0, g = 0, b = 0;
+      if (h < 60) { r = c; g = x; }
+      else if (h < 120) { r = x; g = c; }
+      else if (h < 180) { g = c; b = x; }
+      else if (h < 240) { g = x; b = c; }
+      else if (h < 300) { r = x; b = c; }
+      else { r = c; b = x; }
+      return `rgb(${Math.round((r + m) * 255)},${Math.round((g + m) * 255)},${Math.round((b + m) * 255)})`;
+    };
+    /* 區塊的**順序**就是色相順序 ✓（BMP、A、B…相容補＝索引 × 30° ✓） */
+    const RANGES: [number, number][] = [
+      [0x4E00, 0x9FFF], [0x3400, 0x4DBF], [0x20000, 0x2A6DF], [0x2A700, 0x2B73F],
+      [0x2B740, 0x2B81F], [0x2B820, 0x2CEAF], [0x2CEB0, 0x2EBEF], [0x30000, 0x3134F],
+      [0x31350, 0x323AF], [0x2EBF0, 0x2EE5F], [0xF900, 0xFAFF], [0x2F800, 0x2FA1F],
+    ];
+    const wantBc = (cp: number): string => {
+      const bi = RANGES.findIndex(([a, b]) => cp >= a && cp <= b);
+      return bi < 0 ? NEUTRAL : hsvCss(bi * HUE_STEP, SAT, VAL);
+    };
+    const pal = txt("Xpalette").split(" ").filter((s) => s.includes("="));
+    const palBad = pal.filter((kv) => {
+      const [h, got] = kv.split("=");
+      return got !== wantBc(parseInt(h!, 16));
+    });
+    pal.length === 13 && palBad.length === 0
+      ? ok(`12 個區塊的色相＝索引 × 30°（BMP ${wantBc(0x4E00)}、Ext B ${wantBc(0x20000)}、` +
+           `相容補 ${wantBc(0x2F800)}），區外的碼位給中性灰 ${NEUTRAL} ✓`)
+      : bad(`調色盤不對：${palBad.join("／") || `只問到 ${pal.length} 個碼位`}`);
+    /* 候選格：`--bc` 要是自己那一區的顏色 ✓，字形（color）與 path 的 fill 也要跟著 ✓，
+       邊框也要染同一色（不是預設的 --line ✓）。 */
+    const pairs = txt("XcandPairs").split("|").filter((s) => s.includes(":"));
+    let wrongBc = 0, wrongInk = 0, wrongBorder = 0;
+    for (const p of pairs) {
+      const [cp, bc, gCol, fill, border] = p.split(":");
+      const want = wantBc(Number(cp));
+      if (bc !== want) wrongBc++;
+      /* Chrome 算出來的顏色帶空白（「rgb(255, 115, 115)」✓），比對前先去掉 ✓ */
+      const norm = (s: string | undefined) => (s || "").replace(/\s+/g, "");
+      if (norm(gCol) !== norm(want) || norm(fill) !== norm(want)) wrongInk++;
+      if (norm(border) === "rgb(42,46,53)" || !border) wrongBorder++;   /* --line＝#2a2e35 ✗ */
+    }
+    pairs.length >= 50 && wrongBc === 0 && wrongInk === 0 && wrongBorder === 0
+      ? ok(`${pairs.length} 格候選字都帶著自己那一區的顏色（--bc／字形／fill／邊框一致 ✓、` +
+           `共 ${num("XcandColors")} 種顏色）`)
+      : bad(`候選字上色不對：${pairs.length} 格、色錯了 ${wrongBc}、字形沒跟上 ${wrongInk}、` +
+            `邊框還是預設色 ${wrongBorder}`);
+    num("XcandColors") >= 2
+      ? ok(`候選清單裡真的出現多個區塊的顏色（${num("XcandColors")} 種 ✓）——一眼看得出跨區`)
+      : bad(`候選字只有 ${num("XcandColors")} 種顏色（應該跨 BMP／Ext A／Ext B ✓）`);
+
+    /* ★ 2026-10-16（師父）：「**BMP 要排在 Ext A 前面**」✓——
+       ⚠ 單按碼位排會**剛好相反** ✗（Ext A 從 U+3400 起、BMP 從 U+4E00 起 ✓），
+         客人就會先看到罕用字 ✗。所以要**照 BLOCKS 的順序**排 ✓（BMP → Ext A → … → 相容補 ✓）。
+       驗收自己算一次區塊序 ✓（不是讀頁面的 `blockIndexOf` ✗），抽樣整串驗「不會往回跳」✓。 */
+    {
+      const ordOf = (cp: number): number => {
+        const bi = RANGES.findIndex(([a, b]) => cp >= a && cp <= b);
+        return bi < 0 ? RANGES.length : bi;
+      };
+      const cps = pairs.map((p) => Number(p.split(":")[0]));
+      const back = cps.filter((cp, i) => i > 0 && ordOf(cp) < ordOf(cps[i - 1]!));
+      const first = cps[0] ?? 0;
+      cps.length >= 50 && first >= 0x4e00 && first <= 0x9fff && back.length === 0
+        ? ok(`候選字照**區塊順序**排：第一格是 BMP U+${first.toString(16).toUpperCase()} ✓、` +
+             `抽樣 ${cps.length} 格的區塊序沒有往回跳 ✓——BMP 排在 Ext A 前面 ✓`)
+        : bad(`候選排序不對：第一格 U+${first.toString(16).toUpperCase()}、` +
+              `區塊序往回跳 ${back.length} 次`);
+    }
+
+    /* ★ 2026-10-16（師父）：「**輸入區的文字存進 localStorage** ✓，客人不必每次重新輸入 ✓；
+       字框顯示、中間部件、筆劃粗細**也都存** ✓」——四個鍵一起驗 ✓。
+       值由上面的「留一組已知狀態」那一步寫入 ✓，還原由本段後面的**第二次開頁**驗 ✓。 */
+    txt("Zseq") === "邏羅寶" && txt("ZlsSeq") === "邏羅寶"
+      ? ok("輸入區的文字當場寫進 localStorage（pinxing.seq＝「邏羅寶」✓）")
+      : bad(`輸入區沒有存起來：seq=${JSON.stringify(txt("Zseq"))} ls=${JSON.stringify(txt("ZlsSeq"))}`);
+    txt("ZlsW") === "150" && txt("ZwLbl") === "150%"
+      ? ok("筆劃粗細也存了（pinxing.wscale＝150 ✓、標籤同步 ✓）")
+      : bad(`筆劃粗細沒有存：${txt("ZlsW")}／${txt("ZwLbl")}`);
+    txt("ZlsBox") === "tight"
+      ? ok("字框顯示的狀態也存了（pinxing.boxmode＝tight ✓）")
+      : bad(`字框狀態沒有存：${txt("ZlsBox")}`);
+    txt("ZlsMid") === "1"
+      ? ok("中間部件也存了（pinxing.showmid＝1 ✓）")
+      : bad(`中間部件沒有存：${txt("ZlsMid")}`);
+
+    /* ★ 2026-10-16（師父）：「**部件檢字狀態時，要顯示運算子的用法**
+       （滑鼠 hover 到「部件檢字」 popup 用法）」✓ */
+    txt("HlblFind") === "部件檢字" && num("Hshown") === 1 && txt("Hdisp") === "block"
+      ? ok(`滑過「${txt("HlblFind")}」→ 彈出運算子用法（display=${txt("Hdisp")} ✓）`)
+      : bad(`滑過部件檢字沒有 popup：${txt("HlblFind")}／shown=${num("Hshown")}／disp=${txt("Hdisp")}`);
+    {
+      const help = txt("Htext");
+      const need = ["木+", "木在左", "+木", "木在右", "木/", "木在上", "/木", "木在下",
+                    "口木", "口口", "4木日", "4", "U+908F"];
+      const miss = need.filter((s) => !help.includes(s));
+      miss.length === 0
+        ? ok(`說明裡有全部運算子（${help.slice(0, 46)}…✓）`)
+        : bad(`說明少寫了：${miss.join("／")}（實際：${help.slice(0, 60)}）`);
+    }
+    txt("Hpos") === "absolute" && num("Hshift") === 0
+      ? ok("浮層是 absolute：彈出時**版面完全不動**（位移 0px ✓）")
+      : bad(`浮層會推動版面：position=${txt("Hpos")}／位移 ${num("Hshift")}px`);
+    /* ★ 2026-10-16（師父）：「最下方『**拼形序依據 中国发明专利 201610984608.1 号**』
+       移到上方『構形序』的 hover 說明」✓——拼形序與空白（頁名）兩個狀態都要看得到 ✓，
+       而且**字一字不改** ✓（跟原本頁尾那一句逐字相同 ✓）。 */
+    const PATENT = "拼形序依據 中国发明专利 201610984608.1 号";
+    txt("HlblCompose") === "拼形序" && txt("HafterCompose") === "1" && txt("HafterText") === PATENT
+      ? ok(`「${txt("HlblCompose")}」的 hover 說明＝「${txt("HafterText")}」✓（從頁尾搬上來的原句 ✓）`)
+      : bad(`拼形序的 hover 說明不對：標籤「${txt("HlblCompose")}」／` +
+            `shown=${txt("HafterCompose")}／「${txt("HafterText")}」`);
+    txt("HlblEmpty") === "剎那拼形" && num("Hempty") === 1 && txt("HemptyText") === PATENT
+      ? ok(`頁名「${txt("HlblEmpty")}」（還沒輸入）滑過去也看得到那一句 ✓——搬上來之後才找得到 ✓`)
+      : bad(`空白狀態的 hover 說明不對：${txt("HlblEmpty")}／shown=${num("Hempty")}／` +
+            `「${txt("HemptyText")}」`);
+    num("Hcp") > 0 && /邏/.test(txt("Hcp"))
+      ? ok(`說明裡的 U+908F 真的有用（${txt("Hcp")}）——以前這一頁沒接 ✓`)
+      : bad(`U+908F 沒有作用：${txt("Hcp")}`);
+
+    /* ★ 2026-10-16（師父）：「每個字 Unicode 的左下角…**Extension 區都加一個醒目小英文字母**
+       （有顏色粗體，Arial），標明其所屬區」✓，**基本區 2 萬字除外** ✓
+       （相容區照師父 2026-10-16 的裁定標「相」「補」✓——**不給 J／K** ✗，Unicode 已經有 Ext J ✓）。
+       ⚠ 期望值在驗收裡**自己寫一份**（不是讀頁面的 `BLOCKS` ✓），才驗得出頁面真的照規則標 ✓。 */
+    const MARK_OF_BLOCK = ["", "A", "B", "C", "D", "E", "F", "G", "H", "I", "相", "補"];
+    const wantMark = (cp: number): string => {
+      const bi = RANGES.findIndex(([a, b]) => cp >= a && cp <= b);
+      return bi < 0 ? "" : MARK_OF_BLOCK[bi]!;
+    };
+    const marks = txt("XcandMarks").split(" ").filter((s) => s.includes(":"));
+    const markBad = marks.filter((p) => {
+      const [cp, got] = p.split(":");
+      const want = wantMark(Number(cp));
+      return (got === "-" ? "" : got) !== want;
+    });
+    const nBmp = marks.filter((p) => wantMark(Number(p.split(":")[0]!)) === "").length;
+    const nExt = marks.length - nBmp;
+    marks.length >= 40 && markBad.length === 0 && nBmp > 0 && nExt > 0
+      ? ok(`${marks.length} 格抽樣：小標都對（基本區 ${nBmp} 格**不標** ✓、` +
+           `Extension／相容區 ${nExt} 格標了 A..I／相／補 ✓）`)
+      : bad(`左下角小標不對：${markBad.slice(0, 5).join("／") || `抽到 ${marks.length} 格`}` +
+            `（基本區 ${nBmp}、其他 ${nExt}）`);
+    {
+      const [cp, fam, weight, size, col, bc, lineOp] = txt("XmarkStyle").split("|");
+      const want = wantBc(Number(cp));
+      /Arial/i.test(fam || "") && Number(weight) >= 700 && parseFloat(size || "0") >= 10 &&
+        (col || "").replace(/\s+/g, "") === want && (bc || "") === want && lineOp === "1"
+        ? ok(`小標是**粗體 Arial**（${fam}／${weight}／${size}）、顏色＝那一區的顏色（${want}）✓、` +
+             `碼位那一行沒有整體淡化（opacity ${lineOp} ✓，淡化搬到內層的 .cp ✓）`)
+        : bad(`小標樣式不對：${txt("XmarkStyle")}`);
+    }
 
     // ---- 步驟 1：輸入「進」
     const A = snap("A");
@@ -1026,7 +1479,7 @@ if (!existsSync(EDGE)) {
     const B = snap("B");
     txt("Bchip") === "true" ? ok("② 點部件序列的「辶」") : bad("② 找不到「辶」那一格");
     B.seq === "進辶" ? ok(`② 輸入區變成「進辶」（規格原文的這一步）`) : bad(`② 輸入區是「${B.seq}」`);
-    B.mode === "search" ? ok("② 不是合法構形序列 → 當成部件搜尋（規格第 7 條）")
+    B.mode === "search" ? ok("② 不是合法拼形序列 → 當成部件搜尋（規格第 7 條）")
                         : bad(`② 模式是 ${B.mode}`);
     B.cands > 1000 ? ok(`② 列出含「${txt("Bterm")}」的字：${B.cands.toLocaleString()} 個`)
                    : bad(`② 候選只有 ${B.cands} 個（相容異體沒綁在一起？）`);
@@ -1051,6 +1504,10 @@ if (!existsSync(EDGE)) {
     E.seq === "邏羅寶" && E.mode === "ok" && num("Epaths") > 0
       ? ok(`⑤ 輸入「寶」→ 組出字形（${num("Epaths")} 條筆畫路徑，大字上 ${E.boxes} 個部件框）`)
       : bad(`⑤ 邏羅寶 沒有組出來：${JSON.stringify(E)} paths=${num("Epaths")}`);
+    /* ★ 2026-10-16（師父）：「合理拼形」→「構形序」→「**拼形序**」✓（與項目 pinxing 統一 ✓） */
+    txt("Elbl") === "拼形序"
+      ? ok(`拼形序的標籤＝「${txt("Elbl")}」✓（舊說法「合理拼形」已經不在了 ✓）`)
+      : bad(`標籤不對：${txt("Elbl")}（應該是「拼形序」✗）`);
     /邏 的 羅/.test(txt("Elog") || E.msg) ? ok(`⑤ 引擎的說明：${E.msg}`) : bad(`⑤ 沒有替換說明：${E.msg}`);
     /* 標題只寫「部件清單」（使用者的要求）；要知道**是哪個字**的清單就看部件格：
        這裡的題目是 邏羅寶，游標在最後 → 應該列 寶 的部件（𡩧 貝 缶 𡪓） */
@@ -1067,8 +1524,11 @@ if (!existsSync(EDGE)) {
 
     // ---- 大字的框：顯示／隱藏、中間部件、點框連動
     num("Fboxes") > 0 ? ok(`大字上畫了 ${num("Fboxes")} 個部件框（data-box=${txt("FboxData")}）`) : bad("大字上沒有框");
-    txt("FmidHas") === "yes" && txt("FshowM") === "show" && /字框：顯/.test(txt("FshowT"))
-      ? ok(`字框簡化成**兩態**（${txt("FshowT")} ✓）＋ 有「中間部件」勾選框 ✓`)
+    /* ★ 2026-10-16：走到這一步時字框**還是預設的「隱」** ✓（前面幾個步驟都沒動它 ✓）——
+       框層仍然在（`ghost` ✓，所以 `Fboxes` 數得到 ✓），只是看不見 ✓；
+       驗完這一行，探針才把它打開、接著驗兩態切換 ✓。 */
+    txt("FmidHas") === "yes" && txt("FshowM") === "none" && /字框：隱/.test(txt("FshowT"))
+      ? ok(`字框簡化成**兩態**（進來時是預設的「${txt("FshowT")}」✓）＋ 有「中間部件」勾選框 ✓`)
       : bad(`字框鈕／勾選框不對：${txt("FshowM")}／${txt("FshowT")}／${txt("FmidHas")}`);
     num("FdeepN") > num("FshowN") && num("FdeepS") > 0
       ? ok(`勾「中間部件」→ 多出孫框（${num("FshowN")} → ${num("FdeepN")} 個框，其中孫框 ${num("FdeepS")} 個 ✓）`)
@@ -1179,8 +1639,11 @@ if (!existsSync(EDGE)) {
       : bad(`原圖沒有正常顯示：HrawImg=${txt("HrawImg")}（期望 2,2 ✓）`);
     num("HseqText") === 0 ? ok("庫存按鈕不顯示拼形式本身（想知道就點一下）")
                           : bad(`還留著 ${num("HseqText")} 個拼形式文字`);
-    const CREDIT = "基於開源字庫 Glyphwiki+Kage，拼形序依據 中国发明专利 201610984608.1 号。微信：wxx68174671";
-    txt("Hcredit").indexOf(CREDIT) === 0 ? ok(`頁尾授權宣告：${txt("Hcredit").slice(0, 24)}…`)
+    /* ★ 2026-10-16（師父）：「最重要下方『拼形序依據 …』移到 hover 說明」✓——
+       所以頁尾**不再有那一句** ✓（授權文字只剩開源字庫與微信 ✓）。
+       ⚠ 使用者指定的文字**一字不改** ✓：只是**搬家**，不是改字 ✓（hover 那一段逐字驗 ✓）。 */
+    const CREDIT = "基於開源字庫 Glyphwiki+Kage　·　微信：wxx68174671";
+    txt("Hcredit").indexOf(CREDIT) === 0 ? ok(`頁尾授權宣告：${txt("Hcredit").slice(0, 24)}…（專利那句已搬走 ✓）`)
                               : bad(`頁尾授權不對：${txt("Hcredit")}`);
     /* ★ 師父 2026-10-15：授權文字之後要有「開發記錄」連到同資料夾的 gouxingji.html ✓ */
     txt("Hdevlink") === "gouxingji.html|開發記錄"
@@ -1287,8 +1750,8 @@ if (!existsSync(EDGE)) {
     }
     txt("link1") === "辶" ? ok(`按鈕指向 glyph-browser.html?comp=辶（${txt("txt")}）`)
                           : bad(`連動的 comp 是「${txt("link1")}」`);
-    txt("link2") === "寶" ? ok(`合理拼形時帶的是最後一個字（comp=寶，＝使用者正在看的那個部件）`)
-                          : bad(`合理拼形的 comp 是「${txt("link2")}」`);
+    txt("link2") === "寶" ? ok(`拼形序時帶的是最後一個字（comp=寶，＝使用者正在看的那個部件）`)
+                          : bad(`拼形序的 comp 是「${txt("link2")}」`);
     txt("link3") === "木" ? ok("單字時帶它自己（comp=木）")
                           : bad(`單字時的 comp 是「${txt("link3")}」`);
     txt("clickUrl") === "glyph-browser.html?comp=%E8%BE%B6" && txt("clickUrlEmpty") === '""'
@@ -1459,7 +1922,7 @@ if (!existsSync(EDGE)) {
       const idsStock = txt("PidsStock");
       const ids2 = txt("Pids2");
       idsMode === "ids" && idsSeq === "機幾墨黒𨩛星炚日水" && idsStageHidden === "true"
-        ? ok(`輸入 IDS「⿰木⿳金⿰水火土」→ 認出構字式、**只給文字推薦**「${idsSeq}」✓（不先畫美形 ✓）`)
+        ? ok(`輸入 IDS「⿰木⿳金⿰水火土」→ 認出表意描述序、**只給文字推薦**「${idsSeq}」✓（不先畫美形 ✓）`)
         : bad(`IDS 輸入沒認出來或沒推薦：seq=${idsSeq}、mode=${idsMode}、stageHidden=${idsStageHidden}`);
       /* ★ 第 127 輪的誠實標記 ✓：頁面內的**多步貪婪**實測品質不夠 ✗
          （五行那條引擎組不出來 ✗、好學孔孟 0.203 ✗ 對手工 0.301 ✓），
@@ -1477,7 +1940,7 @@ if (!existsSync(EDGE)) {
         ? ok(`頁內多步貪婪的**已知極限**：${txt("Plive五行")}；${txt("Plive孔孟")}（手工 4 步 ✓）`)
         : ok(`【診斷】引擎在迴路裡的多步貪婪：五行＝${txt("Plive五行")}；好學孔孟＝${txt("Plive孔孟")}`);
       /^機幾墨黒𨩛星炚日水 mode=ok$/.test(idsClick)
-        ? ok(`點推薦文字＝把構形序帶進輸入區並組出來（${idsClick}）✓——字形這時才變美 ✓`)
+        ? ok(`點推薦文字＝把拼形序帶進輸入區並組出來（${idsClick}）✓——字形這時才變美 ✓`)
         : bad(`點 IDS 的推薦沒有作用：${idsClick}`);
       /^2,/.test(idsStock) && /𦥯/.test(txt("PidsStock"))
         ? ok(`庫存區有兩個合文（帶 data-ids）：${idsStock} ✓`)
@@ -1505,7 +1968,7 @@ if (!existsSync(EDGE)) {
          只有 1 個建議時：點完就收起 ✓；還有多個沒看過才留著 ✓。 */
       /mode=(ok|partial)/.test(wandClick) && /bigPaths=[1-9]/.test(wandClick) &&
       (wandN <= 1 ? /hidden=true disp=none/.test(wandClick) : /hidden=false disp=flex/.test(wandClick))
-        ? ok(`點魔術棒 → 建議的構形序填進輸入區並組出來（${wandClick}）；` +
+        ? ok(`點魔術棒 → 建議的拼形序填進輸入區並組出來（${wandClick}）；` +
             (wandN <= 1 ? "只剩這一個→魔杖收起 ✓" : "後面還有→魔杖留著 ✓"))
         : bad(`點魔術棒不對：${wandClick}（建議 ${wandN} 個）`);
       /^next:/.test(wandClick2)
@@ -1524,16 +1987,24 @@ if (!existsSync(EDGE)) {
         ? ok(`第二個合文（好學孔孟）也認得：${ids2} ✓`)
         : bad(`第二個 IDS 不對：${ids2}`);
       /上中下|左右/.test(txt("PidsNote"))
-        ? ok(`IDS 另附人話轉寫（${txt("PidsNote").slice(0, 30)}…）——有些字型沒有 2FF0–2FFF 會變方框 ✗`)
-        : bad(`IDS 沒有附人話轉寫：${txt("PidsNote")}`);
+        ? ok(`表意描述序另附人話轉寫（${txt("PidsNote").slice(0, 30)}…）——有些字型沒有 2FF0–2FFF 會變方框 ✗`)
+        : bad(`表意描述序沒有附人話轉寫：${txt("PidsNote")}`);
+      /* ★ 2026-10-16（師父）：「**「構字式（IDS）」改為「表意描述序」**」✓——
+         標籤（`#seqlbl`）與人話轉寫的開頭都要是新名字 ✓，而且**舊名字不可以還在畫面上** ✗。 */
+      txt("PidsLbl") === "表意描述序" && /^表意描述序：/.test(txt("PidsNote"))
+        ? ok(`IDS 模式的標籤＝「${txt("PidsLbl")}」✓、人話轉寫的開頭也一樣（${txt("PidsNote").slice(0, 6)}…✓）`)
+        : bad(`IDS 模式的名稱不對：標籤「${txt("PidsLbl")}」／轉寫「${txt("PidsNote").slice(0, 12)}」`);
+      !/合理拼形|構字式/.test(txt("PidsLbl") + txt("PidsNote"))
+        ? ok("畫面上沒有留下舊說法（「合理拼形」／「構字式」✗）")
+        : bad(`舊說法還在畫面上：${txt("PidsLbl")}／${txt("PidsNote").slice(0, 20)}`);
       /* ★ 任意 IDS → 立刻看到那個字 ✓（用字庫的葉序反查 ✓，零新增資料 ✓） */
       /* ★ 第 123～126 輪：貼真字葉序的 IDS → **只給文字推薦** ✓（`好`／`林` ✓），
          大字則是 IDC 等比分配（醜 ✓）——兩者一起才會有「接受建議、字突然變美」的驚嘆 ✓。 */
       const idsChar = txt("PidsChar");
       const idsChar2 = txt("PidsChar2");
       num("PidsParts") > 0
-        ? ok(`構字式（IDS）也有部件清單：${num("PidsParts")} 格 ✓（以前是空的 ✗）`)
-        : bad("構字式（IDS）的部件清單是空的 ✗（師父 2026-10-15 回報）");
+        ? ok(`表意描述序（IDS）也有部件清單：${num("PidsParts")} 格 ✓（以前是空的 ✗）`)
+        : bad("表意描述序（IDS）的部件清單是空的 ✗（師父 2026-10-15 回報）");
       /試試「好」/.test(idsChar) && /mode=ids,/.test(idsChar)
         ? ok(`貼「⿰女子」→ 文字推薦「好」（U+597D）✓、大字是等比分配的醜形 ✓`)
         : bad(`「⿰女子」沒有推薦「好」：${idsChar}`);
@@ -1550,7 +2021,7 @@ if (!existsSync(EDGE)) {
         ? ok(`有「拆成 IDS」按鈕（客人不會打 IDC ✓）`)
         : bad(`沒有「拆成 IDS」按鈕：${toIdsBtnOk}`);
       /^⿰女子,mode=ids$/.test(toIdsVal)
-        ? ok(`按「拆成 IDS」→ 輸入區變成「⿰女子」並被認成構字式 ✓（${
+        ? ok(`按「拆成 IDS」→ 輸入區變成「⿰女子」並被認成表意描述序 ✓（${
             toIdsVal}）`)
         : bad(`「拆成 IDS」不對：${toIdsVal}`);
       /IDC 等比分配/.test(toIdsNote) && toIdsPaths > 0
@@ -1577,9 +2048,60 @@ if (!existsSync(EDGE)) {
         : bad(`推薦文字不對：${chipList}`);
       const chipClick = txt("PchipsClick");
       /^桂圭垚,mode=ok,bigPaths=[1-9]/.test(chipClick)
-        ? ok(`點「桂圭垚」→ 輸入區換成構形序、大字立刻變美（${chipClick}）✓ 這就是驚嘆的那一刻 ✓`)
+        ? ok(`點「桂圭垚」→ 輸入區換成拼形序、大字立刻變美（${chipClick}）✓ 這就是驚嘆的那一刻 ✓`)
         : bad(`點推薦 chip 沒作用：${chipClick}`);    }
   }
+  /* ★ 2026-10-16：**第二次開頁**（同一個 `--user-data-dir` ＝「客人關掉再打開」✓）——
+     師父：「輸入區的文字存進 localStorage，客人不必每次重新輸入 ✓；
+     字框顯示、中間部件、筆劃粗細也都存 ✓」→ 這一段就是那句話的實測 ✓。
+     ⚠ 一定要用**同一個檔案路徑** ✓：file:// 的 localStorage 歸屬看瀏覽器怎麼認定，
+       換一個檔名有可能變成另一個來源 ✗（同一支檔案最穩 ✓）。 */
+  {
+    const restoreProbe = `
+<script>
+(function () {
+  function esc(s) { return encodeURIComponent(s); }
+  var tries = 200;
+  var boot = setInterval(function () {
+    if (window.__READY__ || --tries <= 0) {
+      clearInterval(boot);
+      var out = [];
+      out.push("rseq=" + esc(document.getElementById("seq").value));
+      out.push("rwscale=" + document.getElementById("wscale").value);
+      out.push("rwscaleV=" + esc(document.getElementById("wscaleV").textContent));
+      out.push("rboxMode=" + document.getElementById("boxMode").getAttribute("data-mode"));
+      out.push("rboxLabel=" + esc(document.getElementById("boxMode").textContent));
+      out.push("rmid=" + document.getElementById("showMid").checked);
+      out.push("rpaths=" + document.querySelectorAll("#big svg path").length);
+      document.title = "REOPEN|" + out.join(" ");
+    }
+  }, 100);
+})();
+<\/script>`;
+    writeFileSync(diagPath, html.replace("</body>", restoreProbe + "</body>"));
+    const procR = Bun.spawnSync([
+      EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + profile,
+      "--virtual-time-budget=60000", "--window-size=460,1500",
+      "--dump-dom", "file:///" + diagPath.replace(/\\/g, "/"),
+    ], { stdout: "pipe", stderr: "ignore" });
+    const mR = /<title>REOPEN\|([^<]*)<\/title>/.exec(new TextDecoder().decode(procR.stdout));
+    if (!mR) bad("第二次開頁（同一個設定檔目錄）沒有回報");
+    else {
+      const t = mR[1]!;
+      const g = (k: string) => {
+        const mm = new RegExp("(?:^| )" + k + "=([^ ]*)").exec(t);
+        if (!mm) return "";
+        try { return decodeURIComponent(mm[1]!); } catch { return mm[1]!; }
+      };
+      g("rseq") === "邏羅寶" && g("rwscale") === "150" && g("rboxMode") === "show" &&
+      g("rmid") === "true" && Number(g("rpaths")) > 0
+        ? ok(`關掉再打開：輸入區還是「${g("rseq")}」✓、筆劃 ${g("rwscaleV")} ✓、` +
+             `「${g("rboxLabel")}」✓、中間部件已勾 ✓、大字照樣畫出來（${g("rpaths")} 條路徑 ✓）`)
+        : bad(`再開頁沒有還原上一輪的狀態：${t}`);
+    }
+    rmSync(profile, { recursive: true, force: true });
+  }
+
   try { /* 保留探針頁供除錯：PINXING_KEEP=1 */ if (process.env.PINXING_KEEP !== "1") unlinkSync(diagPath); } catch {}
 
   /* ---- ?baseglyph=U+xxxx 入口（從字集瀏覽頁帶基字進來）---- */
