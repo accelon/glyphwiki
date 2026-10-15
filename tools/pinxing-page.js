@@ -1781,6 +1781,44 @@ function saveCurrentSeq() {
   saveUserStock(mine.slice(0, 40));
   $("stock").innerHTML = stockHtml();
   toast(moved ? "已移到最前面：" + s : "已存起來：" + s);
+  updateSaveBtn();
+}
+
+/** 輸入區的序列是不是**客人自己存過的** ✓（是的話存檔鈕變成垃圾桶 ✓）。 */
+function isInUserStock(s) {
+  if (!s) return false;
+  try { return loadUserStock().indexOf(s) >= 0; } catch (e) { return false; }
+}
+
+/** ★ 師父 2026-10-15：存檔鈕兩態 ✓——
+ *  序列已在自存庫存裡 → **垃圾桶** ✓（按一下刪除）；否則 → **存檔** ✓。 */
+function updateSaveBtn() {
+  var b = $("saveSeq");
+  if (!b) return;
+  var s = $("seq").value.replace(/\s+/g, "");
+  var del = isInUserStock(s);
+  b.classList.toggle("del", del);
+  b.title = del ? "刪除這個庫存（再按一下可以存回來）" : "存起來（或在輸入區按 Enter）";
+}
+
+/** 把輸入區的序列**從自存庫存刪掉** ✓（按鈕的垃圾桶那一態 ✓）。客人後悔再按一下就會存回來 ✓。 */
+function deleteCurrentSeq() {
+  var s = $("seq").value.replace(/\s+/g, "");
+  if (!s) return;
+  var mine = loadUserStock();
+  var at = mine.indexOf(s);
+  if (at >= 0) { mine.splice(at, 1); saveUserStock(mine); }
+  $("stock").innerHTML = stockHtml();
+  toast("已從庫存刪除：" + s + "（再按一下存檔就回來 ✓）");
+  updateSaveBtn();
+}
+
+/** 存檔鈕按一下：**在就刪、不在就存** ✓（同一顆按鈕的兩態 ✓）。 */
+function toggleSaveSeq() {
+  var s = $("seq").value.replace(/\s+/g, "");
+  if (!s) return;
+  if (isInUserStock(s)) deleteCurrentSeq(); else saveCurrentSeq();
+  updateSaveBtn();
 }
 
 /** 輸入區下方的浮層提示（absolute，不佔高度 → 出現／消失都不會晃動畫面）。
@@ -1870,7 +1908,8 @@ function stockRow(seq, mine, ix) {
   return '<div class="stockrow' + (mine ? " mine" : "") + '" data-seq="' + seq +
     '" title="' + title + '">' +
     '<div class="stockcell">' + flag + '<div class="g">' + glyph + "</div></div>" +
-    (mine ? '<button class="delStock" data-i="' + ix + '">刪</button>' : "") +
+    /* ★ 師父 2026-10-15：**自存的列不再有「刪」按鈕** ✓（會把方形按鈕撐成長方形 ✗）——
+       改由輸入區最右邊那顆按鈕切換成**垃圾桶** ✓（見 updateSaveBtn ✓）。 */
     "</div>";
 }
 
@@ -1942,6 +1981,7 @@ function render() {
   }
   /* 不是合法拼形式就不給存檔（使用者的要求） */
   $("saveSeq").hidden = !composing;
+  updateSaveBtn();   /* ★ 存檔 ↔ 垃圾桶（自存的序列 ✓） */
 
   if (empty) {
     setMain(null);
@@ -2315,16 +2355,8 @@ function bind() {
   });
   $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); });
 
-  /* 庫存：點一列 ＝ 把整個序列帶進輸入區；「刪」只刪自存的 */
+  /* 庫存：點一列 ＝ 把整個序列帶進輸入區 ✓（刪除改用輸入區右邊的垃圾桶鈕 ✓） */
   $("stock").addEventListener("click", function (e) {
-    var del = e.target.closest ? e.target.closest(".delStock") : null;
-    if (del) {
-      var mine = loadUserStock();
-      mine.splice(Number(del.getAttribute("data-i")), 1);
-      saveUserStock(mine);
-      $("stock").innerHTML = stockHtml();
-      return;
-    }
     var row = e.target.closest ? e.target.closest(".stockrow") : null;
     if (!row) return;
     /* ★ 師父第 127 輪：合文那兩個按鈕送的是 **IDS** ✓（不是構形序 ✗）——
@@ -2334,7 +2366,7 @@ function bind() {
     render();
   });
 
-  $("saveSeq").addEventListener("click", saveCurrentSeq);
+  $("saveSeq").addEventListener("click", toggleSaveSeq);
   /* ★ 師父第 136 輪：**魔術棒 🪄**（DOM 位置在 saveSeq 的前一個 ✓） */
   if ($("wand")) $("wand").addEventListener("click", wandNext);
 

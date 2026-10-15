@@ -406,13 +406,29 @@ if (!existsSync(EDGE)) {
       rows[3].click();
       snap("H");
     },
-    /* --- 存自己的序列：存檔圖示 ＋ Enter；已存過要移到最前面 --- */
+    /* --- 存自己的序列：存檔／垃圾桶兩態 ＋ Enter；已存過要移到最前面 --- */
     function () {
       setSeq("初衤礻");
-      document.getElementById("saveSeq").click();
+      var sb = document.getElementById("saveSeq");
+      out.push("Idel0=" + sb.classList.contains("del"));
+      sb.click();
       out.push("Imine=" + document.querySelectorAll("#stock .stockrow.mine").length);
       out.push("Ils=" + encodeURIComponent(localStorage.getItem("pinxing.stock") || ""));
       out.push("Itoast=" + encodeURIComponent(document.getElementById("msg").textContent));
+      out.push("Idel1=" + sb.classList.contains("del"));
+      out.push("IdelSvg=" + getComputedStyle(sb.querySelector(".icoDel")).display);
+      /* ★ 再按一下（垃圾桶）＝**刪除** ✓、按鈕變回存檔 ✓ */
+      sb.click();
+      out.push("ImineDel=" + document.querySelectorAll("#stock .stockrow.mine").length);
+      out.push("Idel2=" + sb.classList.contains("del"));
+      /* ★ 客人後悔：再按一下 → **又存回來** ✓ */
+      sb.click();
+      out.push("ImineBack=" + document.querySelectorAll("#stock .stockrow.mine").length);
+      out.push("Idel3=" + sb.classList.contains("del"));
+      /* 自存的列**不該**再有「刪」小按鈕（會把方形按鈕撐成長方形 ✗） */
+      out.push("ImineDelBtn=" + document.querySelectorAll("#stock .stockrow.mine .delStock").length);
+      var mrow = document.querySelector("#stock .stockrow.mine");
+      if (mrow) { var mr = mrow.getBoundingClientRect(); out.push("ImineSq=" + (Math.abs(mr.width - mr.height) < 3)); }
       /* Enter 也要能存：keydown 真的有接上（preventDefault 生效）＋ 內容進 localStorage。
          先換成另一串，才驗得出 Enter 真的存了東西。 */
       setSeq("衚胡舞");
@@ -421,9 +437,9 @@ if (!existsSync(EDGE)) {
       out.push("IenterPrevented=" + (!notCancelled));
       out.push("Ienter=" + encodeURIComponent(localStorage.getItem("pinxing.stock") || ""));
       out.push("Itoast2=" + encodeURIComponent(document.getElementById("msg").textContent));
-      /* 再存一次已經存過的：要**移到最前面**，不是多一份 */
+      /* Enter 再存一次已經存過的：要**移到最前面**，不是多一份（Enter 不刪 ✓） */
       setSeq("初衤礻");
-      document.getElementById("saveSeq").click();
+      seqEl().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       out.push("Iagain=" + encodeURIComponent(localStorage.getItem("pinxing.stock") || ""));
       out.push("Imine2=" + document.querySelectorAll("#stock .stockrow.mine").length);
       /* 清空靠 Escape（清空按鈕已移除） */
@@ -1039,6 +1055,19 @@ if (!existsSync(EDGE)) {
 
     // ---- 存自己的序列（圖示 ＋ Enter；已存過移到最前面）
     num("Imine") === 1 ? ok("按存檔圖示 → 自己的序列進 localStorage") : bad(`自存序列 ${num("Imine")} 組`);
+    /* ★ 師父 2026-10-15：輸入區最右邊那顆按鈕**兩態** ✓（不在庫存＝存檔、在庫存＝垃圾桶 ✓） */
+    txt("Idel0") === "false" && txt("Idel1") === "true" && txt("IdelSvg") === "block"
+      ? ok("存檔鈕兩態：不在庫存＝**存檔** ✓、存了之後同一顆變**垃圾桶** ✓")
+      : bad(`存檔鈕兩態不對：del0=${txt("Idel0")} del1=${txt("Idel1")} svg=${txt("IdelSvg")}`);
+    num("ImineDel") === 0 && txt("Idel2") === "false"
+      ? ok("再按一下（垃圾桶）→ 從庫存刪除、按鈕變回存檔 ✓")
+      : bad(`垃圾桶沒有刪掉：mine=${num("ImineDel")} del=${txt("Idel2")}`);
+    num("ImineBack") === 1 && txt("Idel3") === "true"
+      ? ok("客人後悔：再按一下 → 又存回來 ✓")
+      : bad(`後悔沒有存回來：mine=${num("ImineBack")} del=${txt("Idel3")}`);
+    num("ImineDelBtn") === 0 && txt("ImineSq") === "true"
+      ? ok("自存的列沒有「刪」小按鈕 → 按鈕保持**正方形** ✓")
+      : bad(`自存列還有「刪」按鈕或不是正方形：delBtn=${num("ImineDelBtn")} sq=${txt("ImineSq")}`);
     /初衤礻/.test(txt("Ils")) ? ok("localStorage 裡真的是那串序列") : bad(`localStorage：${txt("Ils")}`);
     /已存起來/.test(txt("Itoast")) ? ok(`標題列回饋：${txt("Itoast")}`) : bad(`沒有回饋：${txt("Itoast")}`);
     /衚胡舞/.test(txt("Ienter")) ? ok(`在輸入區按 Enter 也會存（${txt("Ienter")}）`)

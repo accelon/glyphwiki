@@ -91,6 +91,11 @@ const html = `<!DOCTYPE html>
   #seq.flash-warn { --fc:rgba(255,196,107,.55); animation:seqflash .7s ease-out 1; }
   .iconbtn { flex:none; width:36px; height:36px; padding:4px; display:flex; align-items:center; justify-content:center; }
   .iconbtn svg { width:22px; height:22px; display:block; }
+  /* ★ 存檔 ↔ 垃圾桶（同一顆按鈕的兩態 ✓；師父 2026-10-15） */
+  #saveSeq .icoDel { display:none; }
+  #saveSeq.del .icoSave { display:none; }
+  #saveSeq.del .icoDel { display:block; }
+  #saveSeq.del { color:#ff8a8a; }
   /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的構形序時才出現 ✓） */
   #wand { font-size:20px; line-height:1; }
   /* ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
@@ -265,11 +270,15 @@ const html = `<!DOCTYPE html>
       <button id="wand" class="iconbtn" title="系統建議的構形序（點一下套用；再點換下一個）" hidden>🪄</button>
       <!-- 存起來：svg 圖示（磁片）＋ 加號；Enter 也可以存。不是合法拼形式時整顆收起 -->
       <button id="saveSeq" class="iconbtn" title="存起來（或在輸入區按 Enter）">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
+        <svg class="icoSave" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M4 4h11l5 5v11H4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>
           <path d="M8 4h7v5H8z" fill="currentColor"/>
           <path d="M8 14h8v6H8z" fill="none" stroke="currentColor" stroke-width="1.5"/>
           <path d="M17 3v5M14.5 5.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+        <svg class="icoDel" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4.5 6.5h15M9.5 6.5V4.5h5v2M7 6.5l1.2 13.5h7.6L17 6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 10v6.5M14 10v6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       </button>
       <!-- 浮層提示：貼在輸入區正下方，不佔高度（absolute），所以畫面不會晃動 -->
