@@ -47,6 +47,9 @@ const html = `<!DOCTYPE html>
 
   /* 手機豎版優先：一欄，由上到下就是操作的順序。整體盡量緊湊。 */
   .wrap { max-width:460px; margin:0 auto; padding:6px 8px 16px; }
+  /* ★ 寬螢幕把卡片放寬 ✓——大字（200）＋部件清單＋建議並排（200）才排得下 ✓，
+     右邊也不會空一大片 ✓（手機仍維持 460 ✓）。 */
+  @media (min-width:760px) { .wrap { max-width:720px; } }
   header.top { background:var(--card); border:1px solid var(--line); border-radius:10px;
                padding:6px 8px; margin-bottom:6px; }
   header.top b { color:var(--fg); font-size:15px; letter-spacing:.5px; }
@@ -110,6 +113,12 @@ const html = `<!DOCTYPE html>
      flex-wrap ＋ 大字的 min-width 是**防重疊**的保險：萬一視窗真的不夠寬
      （大字 200 ＋ 右欄最少 ~50），右欄會整塊換到下一行，不會壓到大字。 */
   .stagewrap { display:flex; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; gap:8px; }
+  /* ★ 排序：**大字 → 部件清單 →（建議並排）** ✓——
+     建議並排（#sugWrap）是 200×200 的大方塊，擠在中間會把部件清單推到**大字下方** ✗
+     （師父 2026-10-15 回報：「新增庫存字「幸土业」，部件清單跑到大字下方去了」✓）。 */
+  .stagewrap .stage { order:0; }
+  .side { order:1; }
+  .stagewrap .cells { order:2; }
   .stage { position:relative; flex:none; width:200px; height:200px; color:var(--fg);
            border:1px dashed var(--line); border-radius:4px; }
   /* ★ 師父 2026-10-15：**部件清單要緊湊**——原本是**豎排單欄** ✗，

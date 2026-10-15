@@ -447,20 +447,69 @@ function labelSet(chars) {
  *  就要看得到 颰 的部件（風、犮）才能換掉它。
  *  所以取「光標前一個字」；沒有光標資訊（還沒 focus 過）才退回最後一個字。
  *  該字是獨體字（沒有部件）時退回上一個有部件的位置。 */
-function seqOwnerChar(st, seq) {
+function seqOwnerChar(st, seq, skip) {
   var chars = Array.from(seq);
   if (!chars.length) return "";
+  var skipCh = function (c) { return !!(skip && skip[c]); };
   var at = cursorCharIx(seq);                       /* 光標前一個字的位置（-1＝最前面） */
   for (var i = at; i >= 0; i--) {
+    if (skipCh(chars[i])) continue;                 /* 被改掉的字不能當主角 ✓ */
     var gi = glyphIndexOf(chars[i]);
     if (gi !== undefined && hasComponents(LIB, gi)) return chars[i];
   }
   for (var j = chars.length - 1; j > at; j--) {
+    if (skipCh(chars[j])) continue;
     var gj = glyphIndexOf(chars[j]);
     if (gj !== undefined && hasComponents(LIB, gj)) return chars[j];
   }
+  if (skip) return "";                              /* 有「被改掉」的資訊時，**不要**硬挑一個 ✗ */
   if (st && st.owner) return st.owner;
   return chars[0];
+}
+
+/** 序列裡**已經被改掉的字**：log 每一列是「X 的 Y → Z…」✓——
+ *  X（基字）與 Y（被換掉的舊部件）**都不在最後的字形裡** ✓，不能當部件清單的主角 ✗
+ *  （師父 2026-10-15：「峰夆電雨水」不該列「電」、「髜昇厏乍电」不該列「厏」✓）。 */
+function changedCharsOf(st) {
+  var set = {}, log = st && st.eval && st.eval.log;
+  if (!log) return set;
+  for (var i = 0; i < log.length; i++) {
+    var m = /^([^ ]+) 的 ([^ ]+) →/.exec(log[i]);
+    if (m) { set[m[1]] = 1; set[m[2]] = 1; }
+  }
+  return set;
+}
+
+/** 這個字形在**拼形結果的副本**裡被改過嗎 ✓（同一個索引、筆劃不同 ✗）。 */
+function modInFork(i) {
+  if (!MAIN || !MAIN.lib || MAIN.lib === LIB || i < 0) return false;
+  try { return JSON.stringify(MAIN.lib.glyphs[i].strokes) !== JSON.stringify(LIB.glyphs[i].strokes); }
+  catch (e) { return true; }
+}
+
+/** **拼形結果**（fork）的部件清單 ✓——用在「輸入區沒有『沒被改過』的字可以當主角」時 ✓。
+ *  ⚠ 被拼形**改過**的引用（例 電 的 雨→水、厏 的 乍→电）**不可以再用原來的碼位名字** ✗，
+ *  改成列它**實際畫的引用** ✓（否則就會出現師父說「不必出現」的「電」「厏」✗）。 */
+function composedChips() {
+  var out = [];
+  if (!MAIN) return out;
+  var boxes = MAIN.boxes || [];
+  for (var k = 0; k < boxes.length; k++) {
+    var b = boxes[k];
+    if (!b.idsOnly && b.ref >= 0 && modInFork(b.ref)) {
+      try {
+        var kids = refSlotsOf(MAIN.lib, drawingIdx(MAIN.lib, b.ref));
+        for (var j = 0; j < kids.length; j++) {
+          var cp = codePointOf(MAIN.lib, kids[j].ref);
+          var gi = cp ? glyphIndexOf(String.fromCodePoint(cp)) : undefined;
+          if (gi !== undefined) out.push({ ref: gi, order: 100 + out.length, idsOnly: true });
+        }
+      } catch (e0) { }
+      continue;
+    }
+    out.push(b);
+  }
+  return out;
 }
 
 /** 光標前一個字在 chars 裡的索引（光標在最前面＝-1）。
@@ -1194,9 +1243,16 @@ function renderSeq(st) {
   var seq = $("seq").value.replace(/\s+/g, "");
   var chars = Array.from(seq);
   if (!chars.length) { el.innerHTML = ""; cap.textContent = ""; $("philNote").textContent = ""; return; }
-  var ch = seqOwnerChar(st, seq);
-  var gi = glyphIndexOf(ch);
+  var skip = (st && st.eval && st.eval.substituted) ? changedCharsOf(st) : null;
+  var ch = seqOwnerChar(st, seq, skip);
+  /* ★ 沒有「沒被改過」的字可以當主角（例「峰夆電雨水」「髜昇厏乍电」）→
+     直接列**拼出來的形**自己的部件 ✓（師父 2026-10-15 的回報 ✓）。 */
+  var gi = ch ? glyphIndexOf(ch) : undefined;
   var chips = gi === undefined ? [] : componentChips(gi);
+  /* ★ 被改過的字不能當主角 ✓；主角是拼形結果裡的葉、列不出部件時，
+     直接列**拼出來的形**自己的部件 ✓
+     （師父 2026-10-15：「峰夆電雨水」不該列「電」、「髜昇厏乍电」不該列「厏」✓）。 */
+  if (skip && !chips.length && MAIN) { renderBoxChips(composedChips(), "部件清單"); return; }
   /* 獨體字、或沒有部件可列：**整段不顯示**（使用者的要求），不是留一句說明。 */
   if (gi === undefined || !chips.length) {
     el.innerHTML = "";
