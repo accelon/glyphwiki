@@ -232,12 +232,23 @@ function rawPartsOf(gi) {
   return out;
 }
 
+/** ★ 目前**畫面上那一份框**（框、部件清單、筆劃塗色**三處一定同一份** ✓）——
+ *  師父的連動要求靠這一條才成立 ✓；以前三處各算各的，IDS 模式就對不上 ✗。 */
+function currentBoxes() {
+  if (!MAIN) return [];
+  /* 構字式（IDS）：清單就是**構字式的那幾塊** ✓（框也跟著 ✓，不要跳去「最終部件」✗） */
+  if (lastEval && lastEval.mode === "ids") return MAIN.boxes;
+  if (SHOW_MID) return deepBoxesOfMain();
+  if (isComposed()) return frontierBoxesOfMain();
+  return MAIN.boxes;
+}
+
 function frontierBoxesOfMain() {
   var out = [];
   if (!MAIN) return out;
   /* 中間部件＝序列 log 裡「被改過的字」✓（例 邏/寶/𩀨/䞃）——**即使引擎沒有改動它的筆劃** ✓
      （例 䞃：引擎發現它本來就有「招」✓，但仍要往下看它的 貝／招 ✓）。 */
-  var mids = changedCharsOf(lastEval);
+  var mids = baseCharsOf(lastEval);   /* ★ 只認**被改過的基字** ✓（舊部件 Y 不算 ✗） */
   var isMid = function (ref) {
     if (modInFork(ref)) return true;
     var cp = codePointOf(MAIN.lib, ref);
@@ -264,7 +275,8 @@ function frontierBoxesOfMain() {
         }
         out.push({ ref: it.extra, refName: "", slotIx: -1, strokeIx: -1,
                    raw: ExtraBox, tight: ExtraBox, idsOnly: true, order: out.length,
-                   abs: ExtraBox, depth: depth, path: null });
+                   abs: ExtraBox, depth: depth, path: null,
+                   ownPath: path });   /* ★ 它沒有引用路徑 ✓——塗色要靠**這一格自己的筆劃** ✓ */
         continue;
       }
       var k = it.ix, s = it.slot;
@@ -293,7 +305,7 @@ function frontierBoxesOfMain() {
  *  回傳的是**內部的 <path>**（不含 <svg>）。找不到就回空字串。 */
 function partSvgOfMain(order) {
   if (!MAIN || order < 0) return "";
-  var list = SHOW_MID ? deepBoxesOfMain() : (isComposed() ? frontierBoxesOfMain() : MAIN.boxes);
+  var list = currentBoxes();
   var b = null;
   for (var i = 0; i < (list || []).length; i++) {
     if (list[i] && list[i].order === order) { b = list[i]; break; }
@@ -310,9 +322,15 @@ function partSvgOfMain(order) {
       }
     }
   }
-  if (!path || !path.length) return "";
   var svg = null;
-  try { svg = svgOfPathInRoot(MAIN.lib, MAIN.idx, path); } catch (e) { return ""; }
+  if (path && path.length) {
+    try { svg = svgOfPathInRoot(MAIN.lib, MAIN.idx, path); } catch (e) { svg = null; }
+  }
+  /* ★ 師父 2026-10-16：**手畫筆劃的部件**（例「寶缶支」的 王）沒有引用路徑 ✗——
+     改畫**那一格自己的筆劃** ✓，這樣它也會跟著框一起變色 ✓。 */
+  if (!svg && b.ownPath && b.ownPath.length) {
+    try { svg = svgOfOwnInRoot(MAIN.lib, MAIN.idx, b.ownPath); } catch (e2) { svg = null; }
+  }
   if (!svg) return "";
   var inner = svg.replace(/^[\s\S]*?<svg\b[^>]*>/, "").replace(/<\/svg>\s*$/, "");
   return inner.replace(/fill="(?:black|#000000)"/gi, 'fill="' + boxColor(order) + '"');
@@ -623,6 +641,21 @@ function seqOwnerChar(st, seq, skip) {
 /** 序列裡**已經被改掉的字**：log 每一列是「X 的 Y → Z…」✓——
  *  X（基字）與 Y（被換掉的舊部件）**都不在最後的字形裡** ✓，不能當部件清單的主角 ✗
  *  （師父 2026-10-15：「峰夆電雨水」不該列「電」、「髜昇厏乍电」不該列「厏」✓）。 */
+/** 序列 log 裡**被改過的基字**（「**X** 的 Y → Z」的 X ✓）——只有它們才是「中間部件」✓。
+ *  ⚠ **不要**用「被換掉的舊部件（Y）」✗：名字會撞到別處的真部件——
+ *  例 `邏羅寶貝𩀨從䞃致招`：`貝` 是「寶 的 貝 → …」的舊部件 ✓，
+ *  但它同時也是 `䞃` 底下**真正的**一個部件（那裡的 貝 不是它 ✗）——
+ *  用 Y 會把那個 貝 誤當成中間部件、往下拆成 `目` ✗（師父 2026-10-16 抓到 ✓）。 */
+function baseCharsOf(st) {
+  var set = {}, log = st && st.eval && st.eval.log;
+  if (!log) return set;
+  for (var i = 0; i < log.length; i++) {
+    var m = /^([^ ]+) 的 ([^ ]+) →/.exec(log[i]);
+    if (m) set[m[1]] = 1;
+  }
+  return set;
+}
+
 function changedCharsOf(st) {
   var set = {}, log = st && st.eval && st.eval.log;
   if (!log) return set;
@@ -1390,11 +1423,10 @@ function renderBoxChips(boxes, capText) {
 function renderSeq(st) {
   var el = $("seqChips"), cap = $("seqNote");
   /* ★ 構字式（IDS）：部件清單＝**構字式的那幾塊** ✓（師父 2026-10-15 回報空的 ✗） */
-  if (st && st.mode === "ids") { renderBoxChips(MAIN ? MAIN.boxes : [], "部件清單"); return; }
-  /* ★ 「中間部件」勾了：部件清單＝**所有子孫** ✓（框與格子用同一個 data-box 互相亮起 ✓） */
-  if (SHOW_MID && MAIN) { renderBoxChips(deepBoxesOfMain(), "部件清單"); return; }
-  /* ★ 拼形結果（fork）：部件清單＝**最終組字用到的部件** ✓（沒有再被改過的那一層 ✓） */
-  if (isComposed()) { renderBoxChips(frontierBoxesOfMain(), "部件清單"); return; }
+  /* ★ 看得到、不能換的清單（構字式／中間部件／拼形結果的最終部件）——一律走 currentBoxes() ✓，
+     框、清單、塗色才會指著同一格 ✓（師父的連動要求 ✓）。 */
+  if (st && st.mode === "ids") { renderBoxChips(currentBoxes(), "部件清單"); return; }
+  if (MAIN && (SHOW_MID || isComposed())) { renderBoxChips(currentBoxes(), "部件清單"); return; }
   var seq = $("seq").value.replace(/\s+/g, "");
   var chars = Array.from(seq);
   if (!chars.length) { el.innerHTML = ""; cap.textContent = ""; $("philNote").textContent = ""; return; }
@@ -1470,8 +1502,8 @@ function renderSeq(st) {
     用**原始 KAGE 框**（引擎實際用的那個矩形），`[x1,y1,x2,y2]`。 */
 function boxCoordText(order) {
   if (!MAIN) return "";
-  var deep = SHOW_MID;
-  var list = SHOW_MID ? deepBoxesOfMain() : (isComposed() ? frontierBoxesOfMain() : MAIN.boxes);
+  var deep = SHOW_MID && !(lastEval && lastEval.mode === "ids");
+  var list = currentBoxes();
   if (!list) return "";
   for (var k = 0; k < list.length; k++) {
     var b = list[k];
@@ -2316,18 +2348,18 @@ function render() {
 function renderBig(scroll) {
   if (!MAIN) return;
   try {
-    /* 框的來源：**中間部件**勾了＝所有子孫（孫框 ✓）；沒勾＝最終組字用到的部件 ✓ */
-    var bx = null, bmode = "tight";
-    if (SHOW_MID) { bx = deepBoxesOfMain(); bmode = "deep"; }
-    else if (isComposed()) { bx = frontierBoxesOfMain(); }
-    else { bx = MAIN.boxes; }
+    /* 框的來源：**和部件清單同一份** ✓（見 currentBoxes ✓） */
+    var bx = currentBoxes();
+    var bmode = (SHOW_MID && !(lastEval && lastEval.mode === "ids")) ? "deep" : "tight";
     /* ★ 選中的部件：筆劃染成框色 ✓（獨立一層 `.hllayer`，**在框層下面** ✓） */
     var hl = '<svg class="hllayer" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"></svg>';
     /* ★ 師父 2026-10-16：**藏起字框時，筆劃塗色照樣要能動** ✓——
        所以 `.hllayer` 一定要留著 ✓（只和部件清單連動 ✓，和有沒有框無關 ✓）。 */
-    $("big").innerHTML = BOXMODE === "none"
-      ? mainSvg() + hl
-      : bigSvgHtml(mainSvg() + hl, bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
+    var html = bigSvgHtml(mainSvg() + hl, bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
+    /* ★ 藏字框＝**框看不見、還是有作用** ✓（透明但吃滑鼠事件 ✓）：
+       在大字上滑過／點下去照樣選到那一格、塗色 ✓、部件清單也跟著亮 ✓。 */
+    if (BOXMODE === "none") html = html.replace('svg class="boxlayer"', 'svg class="boxlayer ghost"');
+    $("big").innerHTML = html;
     paintActiveStrokes(ACTIVE_BOX);
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";

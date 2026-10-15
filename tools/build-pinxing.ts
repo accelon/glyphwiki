@@ -176,6 +176,10 @@ const html = `<!DOCTYPE html>
      文件序在 boxlayer **之前**＝畫在框的下面 ✓（框線不會被蓋掉 ✓）；
      不吃滑鼠事件 ✓（點框還是由框層決定 ✓）。 */
   .stage .hllayer { position:absolute; left:0; top:0; width:200px; height:200px; pointer-events:none; }
+  /* ★ 師父 2026-10-16：「字框：隱」時框**只是看不見，還是有作用** ✓——
+     在大字上滑過／點下去，照樣選到那一格、把它的筆劃塗成那一格的顏色 ✓。
+     所以要留著框層（透明 ＋ 自己吃滑鼠事件 ✓），不是整層拿掉 ✗。 */
+  .stage .boxlayer.ghost .cbox { fill:transparent; stroke:none; pointer-events:all; }
   .cbox { fill:color-mix(in srgb, var(--c) 11%, transparent); stroke:var(--c); stroke-width:1.4; cursor:pointer; }
   .cbox:hover { fill:color-mix(in srgb, var(--c) 24%, transparent); stroke-width:2.2; }
   .cbox.on { fill:color-mix(in srgb, var(--c) 30%, transparent); stroke-width:2.6; }

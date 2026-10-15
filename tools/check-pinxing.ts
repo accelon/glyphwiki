@@ -313,6 +313,8 @@ if (!existsSync(EDGE)) {
           out.push(tag + "T=" + encodeURIComponent(b.textContent));
           out.push(tag + "M=" + b.getAttribute("data-mode"));
           out.push(tag + "P=" + document.querySelectorAll("#big svg path").length);
+          var gl = document.querySelector("#big .boxlayer");
+          out.push(tag + "G=" + (gl && /(^| )ghost( |$)/.test(gl.getAttribute("class") || "") ? "yes" : "no"));
         }
         out.push("FshowT=" + encodeURIComponent(b.textContent));
         out.push("FshowM=" + b.getAttribute("data-mode"));
@@ -366,15 +368,66 @@ if (!existsSync(EDGE)) {
       /* 藏起字框 → 塗色還是要能和部件清單連動 ✓ */
       var kb = document.getElementById("boxMode");
       if (kb.getAttribute("data-mode") !== "none") kb.click();
+      var klayer = document.querySelector("#big .boxlayer");
       out.push("Kmode=" + kb.getAttribute("data-mode") + "/" + document.querySelectorAll("#big .cbox").length);
+      out.push("Kghost=" + (klayer ? (/(^| )ghost( |$)/.test(klayer.getAttribute("class") || "") ? "yes" : "no") : "none"));
+      /* ★ 師父 2026-10-16：框只是看不見、**還是有作用** ✓——
+         在大字上滑過那一個（看不見的）框，照樣塗色、清單那一格也亮 ✓。 */
+      var kbox = document.querySelector("#big .cbox");
+      if (kbox) kbox.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      var klay = document.querySelector("#big .hllayer");
+      out.push("KghostPaths=" + (klay ? klay.querySelectorAll("path").length : -1));
+      out.push("KghostChip=" + document.querySelectorAll("#seqChips .mini.comp.hover").length);
       var kchip = document.querySelector("#seqChips .mini.comp");
       if (kchip) kchip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       var klay = document.querySelector("#big .hllayer");
       out.push("Khl=" + (klay ? klay.querySelectorAll("path").length : -1));
       out.push("KhFill=" + (klay && klay.querySelector("path") ? klay.querySelector("path").getAttribute("fill") : ""));
       out.push("KhBox=" + (kchip ? kchip.style.getPropertyValue("--c") : ""));
+      /* ★ 手畫筆劃的部件（寶缶支 的 王）也要能塗色 ✓（它沒有引用路徑 ✓） */
+      var kw = null, kall = document.querySelectorAll("#seqChips .mini.comp");
+      for (var wi = 0; wi < kall.length; wi++) {
+        if ((kall[wi].getAttribute("title") || "").indexOf("U+738B") >= 0) { kw = kall[wi]; break; }
+      }
+      if (kw) kw.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      out.push("KwPaths=" + (klay ? klay.querySelectorAll("path").length : -1));
+      out.push("KwFill=" + (klay && klay.querySelector("path") ? klay.querySelector("path").getAttribute("fill") : ""));
+      out.push("KwC=" + (kw ? kw.style.getPropertyValue("--c") : ""));
       if (kchip) kchip.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
       if (kb.getAttribute("data-mode") === "none") kb.click();
+      setSeq(seqv);
+    },
+    /* --- 長序列：部件該是「貝」不是「目」（師父 2026-10-16） --- */
+    function () {
+      var seqv = seqEl().value;
+      setSeq(String.fromCodePoint(0x908F, 0x7F85, 0x5BF6, 0x8C9D, 0x29028, 0x5F9E, 0x4783, 0x81F4, 0x62DB));
+      var mc = document.querySelectorAll("#seqChips .mini.comp");
+      var mt = [];
+      for (var mi = 0; mi < mc.length; mi++) mt.push((mc[mi].getAttribute("title") || "").slice(0, 6));
+      out.push("Mchips=" + mc.length);
+      out.push("Mtips=" + mt.join(","));
+      out.push("Mboxes=" + document.querySelectorAll("#big .cbox").length);
+      setSeq(seqv);
+    },
+    /* --- IDS 模式 ＋ 藏字框：塗色也要和部件清單連動（師父 2026-10-16） --- */
+    function () {
+      var seqv = seqEl().value;
+      var mid = document.getElementById("showMid");
+      if (mid && mid.checked) { mid.checked = false; mid.dispatchEvent(new Event("change")); }
+      var lb = document.getElementById("boxMode");
+      if (lb.getAttribute("data-mode") !== "none") lb.click();
+      setSeq(String.fromCharCode(0x2FF0, 0x6728, 0x2FF3, 0x91D1, 0x2FF0, 0x6C34, 0x706B, 0x571F));
+      out.push("Lmode=" + lb.getAttribute("data-mode") + "/" + (lastEval && lastEval.mode) +
+        "/" + document.querySelectorAll("#seqChips .mini.comp").length);
+      var lc = document.querySelectorAll("#seqChips .mini.comp");
+      if (lc[0]) lc[0].dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      var llay = document.querySelector("#big .hllayer");
+      out.push("Lhl=" + (llay ? llay.querySelectorAll("path").length : -1));
+      out.push("Lfill=" + (llay && llay.querySelector("path") ? llay.querySelector("path").getAttribute("fill") : ""));
+      out.push("Lbox=" + (lc[0] ? lc[0].style.getPropertyValue("--c") : ""));
+      if (lc[1]) lc[1].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      out.push("Lclick=" + (llay && llay.querySelectorAll("path").length));
+      if (lb.getAttribute("data-mode") === "none") lb.click();
       setSeq(seqv);
     },
     /* --- 「字框：孫」：所有子孫的框（直到獨體）--- */
@@ -1023,9 +1076,9 @@ if (!existsSync(EDGE)) {
     num("FmidOff") === num("FshowN")
       ? ok(`取消「中間部件」→ 回到只看最終組字用到的部件（${num("FmidOff")} 個框 ✓）`)
       : bad(`取消中間部件後框數不對：${num("FmidOff")} vs ${num("FshowN")}`);
-    txt("FnoneM") === "none" && num("FnoneN") === 0 && num("FnoneP") > 0 && /字框：隱/.test(txt("FnoneT"))
-      ? ok(`字框切到「隱」：沒有框但字形還在（${num("FnoneP")} 條筆畫路徑）`)
-      : bad(`「不顯示框」不對：${txt("FnoneM")}／框 ${num("FnoneN")}／路徑 ${num("FnoneP")}`);
+    txt("FnoneM") === "none" && txt("FnoneG") === "yes" && num("FnoneP") > 0 && /字框：隱/.test(txt("FnoneT"))
+      ? ok(`字框切到「隱」：框看不見（ghost ✓）但字形還在（${num("FnoneP")} 條筆畫路徑）`)
+      : bad(`「不顯示框」不對：${txt("FnoneM")}／ghost ${txt("FnoneG")}／路徑 ${num("FnoneP")}`);
     txt("FbackM") === "show" && num("FbackN") > 0
       ? ok(`再按一下回到「顯」（兩態循環 ✓）`) : bad(`兩態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
     num("FactiveBox") > 0 && num("FactiveChip") > 0
@@ -1048,9 +1101,29 @@ if (!existsSync(EDGE)) {
     num("Kboxes") === num("Kchips")
       ? ok(`框數＝清單格數（${num("Kboxes")} ✓）`)
       : bad(`框數與清單不合：框 ${num("Kboxes")}／清單 ${num("Kchips")}`);
-    txt("Kmode") === "none/0" && num("Khl") > 0 && txt("KhFill") === txt("KhBox") && txt("KhBox") !== ""
+    txt("Kmode") === "none/4" && txt("Kghost") === "yes"
+      ? ok(`藏起字框：框層留著、變成**看不見但吃滑鼠**（ghost ✓，${num("Kboxes")} 格 ✓）`)
+      : bad(`藏框的方式不對：mode=${txt("Kmode")} ghost=${txt("Kghost")}`);
+    num("KwPaths") > 0 && txt("KwFill") === txt("KwC") && txt("KwC") !== ""
+      ? ok(`手畫筆劃的「王」也連動：${num("KwPaths")} 條路徑＝${txt("KwFill")} ✓`)
+      : bad(`「王」沒有連動：paths=${num("KwPaths")} fill=${txt("KwFill")} c=${txt("KwC")}`);
+    num("KghostPaths") > 0 && num("KghostChip") === 1
+      ? ok(`框看不見還是有作用：滑過大字 → 塗色 ${num("KghostPaths")} 條 ＋ 清單那一格亮 ✓`)
+      : bad(`看不見的框沒有作用：paths=${num("KghostPaths")} chipHover=${num("KghostChip")}`);
+    num("Khl") > 0 && txt("KhFill") === txt("KhBox") && txt("KhBox") !== ""
       ? ok(`藏起字框時，塗色照樣和部件清單連動（${num("Khl")} 條路徑＝${txt("KhFill")} ✓）`)
       : bad(`藏框後塗色失效：mode=${txt("Kmode")} paths=${num("Khl")} fill=${txt("KhFill")} box=${txt("KhBox")}`);
+    // ---- 長序列：部件該是「貝」不是「目」
+    num("Mchips") === 5 && /U\+8C9D/.test(txt("Mtips")) && !/U\+76EE/.test(txt("Mtips"))
+      ? ok(`長序列的部件＝${txt("Mtips")}（含 貝、不含 目 ✓）`)
+      : bad(`長序列的部件不對：${num("Mchips")} 格／${txt("Mtips")}`);
+    // ---- IDS 模式 ＋ 藏字框：塗色也要連動
+    txt("Lmode") === "none/ids/5" && num("Lhl") > 0 && txt("Lfill") === txt("Lbox") && txt("Lbox") !== ""
+      ? ok(`IDS 模式藏起字框：塗色照樣連動（${num("Lhl")} 條路徑＝${txt("Lfill")} ✓）`)
+      : bad(`IDS 模式藏框後塗色失效：mode=${txt("Lmode")} paths=${num("Lhl")} fill=${txt("Lfill")} box=${txt("Lbox")}`);
+    num("Lclick") === num("Lhl")
+      ? ok(`IDS 的格子點一下＝選它（塗色留著 ✓）`)
+      : bad(`IDS 格子點下去塗色掉了：${num("Lclick")} vs ${num("Lhl")}`);
     // ---- 中間部件：孫框（所有子孫）
     txt("Dmode") === "show" && /字框：顯/.test(txt("Dlabel"))
       ? ok(`字框顯示中（${txt("Dlabel")}）；孫框由「中間部件」決定 ✓`)
