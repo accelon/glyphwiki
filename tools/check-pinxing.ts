@@ -1232,16 +1232,18 @@ if (!existsSync(EDGE)) {
       setSeq("");
       out.push("IpuzzleEmpty=" + (tz.hidden ? 0 : 1));
     },
-    /* --- ★ 2026-10-16（師父）：滑過某一塊 → **其他的要被覆蓋不可見** ✓ --- */
+    /* --- ★ 2026-10-16（師父）：滑過某一塊 → **只染色**，其他筆劃照舊看得見 ✓ ---
+       ⚠ 第 146～175 輪這裡是「把主字形收起來（只看那一塊）」✗——那是把師父原話的
+         **括號（症狀描述）**當成指令 ✗；他回報「hover 過去時，其他的白色筆劃都不見了」✗。 */
     function () {
       setSeq("邏羅寶");
       var big = document.getElementById("big");
       var gly = big.querySelector("svg.gly");
       function iso(tag) {
-        out.push(tag + "=" + (big.classList.contains("iso") ? 1 : 0) + "/" +
-          (gly ? getComputedStyle(gly).opacity : "?") + "/" +
-          document.querySelectorAll("#big .hllayer path").length + "/" +
-          document.querySelectorAll("#big .cbox").length);
+        out.push(tag + "=" + (gly ? getComputedStyle(gly).opacity : "?") + "/" +
+          (big.classList.contains("iso") ? 1 : 0) + "/" +
+          document.querySelectorAll("#big > svg.gly path").length + "/" +
+          document.querySelectorAll("#big .hllayer path").length);
       }
       iso("IsoBefore");
       var chip = document.querySelector("#seqChips .mini.comp[data-box]");
@@ -1672,20 +1674,20 @@ if (!existsSync(EDGE)) {
         ? ok(`高亮（土）畫了 ${n} 點，只有 ${pct}% 落在字形外面 ✓（那幾點就是抗鋸齒邊緣 ✓）`)
         : bad(`高亮的墨跑到字形外面了：${txt("Ipix")}（修好前是 49.7% ✗）`);
     }
-    /* ★ 2026-10-16（師父）：「hover 到某一塊時，**其他的應該被覆蓋不可見**」✓——
-       滑過去：主字形那一層 `opacity:0` ✓、那一塊的筆劃畫出來 ✓、框留著（位置地圖 ✓）；
-       滑出去：主字形回來 ✓、那一塊的染色清掉 ✓。 */
+    /* ★ 2026-10-16（師父）：「hover 過去時，**其他的白色筆劃都不見了**」✗——
+       滑過某一塊時**只把那一塊染色** ✓，其他筆劃照舊看得見 ✓
+       （第 146～175 輪曾經把主字形收起來 ✗，那是我把括號裡的症狀描述當成指令 ✗）。 */
     {
       const on = txt("IsoOn").split("/");
       const off = txt("IsoOff").split("/");
       const before = txt("IsoBefore").split("/");
-      on[0] === "1" && on[1] === "0" && Number(on[2]) > 0
-        ? ok(`滑過部件（第 ${txt("IsoChip")} 格）：主字形 opacity=${on[1]}（被蓋住 ✓）、` +
-             `那一塊畫了 ${on[2]} 條筆劃 ✓、框還留著 ${on[3]} 個 ✓`)
-        : bad(`滑過部件沒有蓋掉其他部分：${txt("IsoOn")}`);
-      off[0] === "0" && off[1] === "1" && off[2] === "0" && before[0] === "0" && before[1] === "1"
-        ? ok("滑出去就還原（主字形回來 ✓、染色清掉 ✓、平常不會蓋 ✓）")
-        : bad(`滑出後沒有還原：前 ${txt("IsoBefore")}／後 ${txt("IsoOff")}`);
+      on[0] === "1" && Number(on[2]) > 0 && Number(on[3]) > 0
+        ? ok(`滑過部件（第 ${txt("IsoChip")} 格）：主字形還看得見（opacity=${on[0]}、${on[2]} 條筆劃 ✓）` +
+             `＋那一塊染色 ${on[3]} 條 ✓`)
+        : bad(`滑過部件把其他筆劃蓋掉了：${txt("IsoOn")}`);
+      off[0] === "1" && off[3] === "0" && before[0] === "1" && before[3] === "0" && on[1] === "0" && off[1] === "0"
+        ? ok("滑出去就清掉染色 ✓（主字形從頭到尾都在 ✓、也已經沒有 iso 那個開關 ✓）")
+        : bad(`滑出後不對：前 ${txt("IsoBefore")}／中 ${txt("IsoOn")}／後 ${txt("IsoOff")}`);
     }
 
     /* ★ 2026-10-16（師父）：「每個字 Unicode 的左下角…**Extension 區都加一個醒目小英文字母**

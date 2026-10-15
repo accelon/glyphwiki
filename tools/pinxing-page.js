@@ -342,27 +342,22 @@ function partSvgOfMain(order) {
 
 /** 把 `.hllayer` 的內容換成「第 box 個部件、染成框色」的筆劃 ✓。
  *  ⚠ **只換這一層**、不重畫整個字形 ✓——滑過框時才不會閃爍 ✓（換掉游標底下的元素會抖 ✗）。
- *  ★ 師父 2026-10-16：「**hover 到某一塊時，其他的應該被覆蓋不可見**」✓——
- *    滑過的時候把**主字形那一層收起來** ✓（`iso` ✓），只留那一塊（染色 ✓）＋框（位置 ✓）。
- *    ⚠ `iso` 只在**滑過**時給 ✓（`iso` 參數 ✓）：`renderBig()` 之類的重畫會用選中的那一格
- *      再呼叫一次 `paintActiveStrokes()` ✓，那時**不可以**把主字形收起來 ✗
- *      （客人只是打了字、沒有在滑 ✓，畫面不該突然只剩一塊 ✓）。 */
-function paintActiveStrokes(box, iso) {
+ *
+ *  ★★ 曾經做過、**已經拿掉**的「只看那一塊」（第 146 輪加了 `iso`、第 176 輪刪掉 ✗）——
+ *  師父 2026-10-16 的原話要**連著括號一起讀**：
+ *    「hover 到「土」時，變成很大，白色的「土」和青色的「土」同時存在
+ *      （其他的應該被覆蓋不可見。）」
+ *  → 那是在**描述症狀** ✓：高亮畫歪了、變成一大塊蓋住其他部件，所以「其他的看不見」✗。
+ *    我當時讀成「要求只看那一塊」✗，於是把主字形收起來（`opacity:0` ✓）——
+ *    師父隔一輪就回報「hover 過去時，**其他的白色筆劃都不見了**」✗（＝那不是他要的 ✓）。
+ *  ⚠ 教訓：**括號裡的描述不可以當成指令** ✗——分不出來就先問 ✓，
+ *    不要拿一個「畫面會少東西」的猜測去改 ✗（少東西比多東西更難解釋 ✓）。 */
+function paintActiveStrokes(box) {
   var host = $("big");
   var lay = host ? host.querySelector(".hllayer") : null;
   if (!lay) return;
   if (box === undefined || box === null) box = ACTIVE_BOX;
-  var svg = box >= 0 ? partSvgOfMain(box) : "";
-  lay.innerHTML = svg;
-  /* ⚠ 畫得出那一塊才收主字形 ✓：畫不出來還收起來＝整片空白 ✗（客人只會覺得壞了 ✓）。 */
-  setIso(!!svg && !!iso);
-}
-
-/** 「只看那一塊」的開關 ✓——只是**看不見**（`opacity:0` ✓）：那一層還在 DOM 裡 ✓，
- *  滑出去立刻回來 ✓、也不會推動任何版面 ✓（`display:none` 會重排 ✗）。 */
-function setIso(on) {
-  var host = $("big");
-  if (host) host.classList[on ? "add" : "remove"]("iso");
+  lay.innerHTML = box >= 0 ? partSvgOfMain(box) : "";
 }
 
 function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
@@ -2766,12 +2761,10 @@ function bind() {
     var bx = (r && r.hasAttribute("data-box")) ? Number(r.getAttribute("data-box")) : -1;
     hoverChip(bx);
     /* ★ 滑過框 → 那一格的筆劃也**染成框色** ✓（師父 2026-10-15；滑出＝回到選中的那格 ✓） */
-    /* ★ 師父 2026-10-16：滑過某一塊時**其他的要被覆蓋不可見** ✓（`iso` ✓） */
-    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX, bx >= 0);
+    /* ⚠ 滑過時**只把那一塊染色** ✓——其他筆劃照舊看得見 ✓（第 176 輪：曾經把主字形收起來 ✗，師父回報「其他的白色筆劃都不見了」✗）。 */
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
   });
-  $("big").addEventListener("mouseleave", function () {
-    hoverChip(-1); paintActiveStrokes(ACTIVE_BOX); setIso(false);
-  });
+  $("big").addEventListener("mouseleave", function () { hoverChip(-1); paintActiveStrokes(ACTIVE_BOX); });
 
   /* ★ 反向也要通 ✓：滑過部件清單的格子 → 大字上對應的框也亮起來 ✓ */
   $("seqChips").addEventListener("mouseover", function (e) {
@@ -2779,11 +2772,9 @@ function bind() {
     var bx = (m && m.hasAttribute("data-box")) ? Number(m.getAttribute("data-box")) : -1;
     hoverFrame(bx);
     /* ★ 反向也要染色 ✓（滑過清單的格子 → 大字那一格的筆劃變框色 ✓） */
-    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX, bx >= 0);
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
   });
-  $("seqChips").addEventListener("mouseleave", function () {
-    hoverFrame(-1); paintActiveStrokes(ACTIVE_BOX); setIso(false);
-  });
+  $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); paintActiveStrokes(ACTIVE_BOX); });
 
   /* 庫存：點一列 ＝ 把整個序列帶進輸入區 ✓（刪除改用輸入區右邊的垃圾桶鈕 ✓） */
   $("stock").addEventListener("click", function (e) {
