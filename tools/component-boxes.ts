@@ -202,6 +202,83 @@ export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure, opt?:
   return out;
 }
 
+/** **孫框**：一個字底下**所有子孫**的框，全部投影回**根座標** ✓（直到「自己會畫」的獨體為止 ✓）。
+ *
+ *  ⚠ 為什麼不直接用 `componentBoxes(…, { deep: true })` ✗：
+ *  那一支是第 138 輪為了**比框數**寫的 ✓，留下來的是**容器**的框（`parentBox`），
+ *  不是每一個孫**自己**的框 ✗——拿來畫會全部疊在上一層的框上 ✗。
+ *  這一支把每一格自己的框沿著引用框**一路投影上來** ✓（結果放在 `abs` ✓）。
+ *
+ *  `order` 刻意讓**根的直接分量先排 0..n-1** ✓（與 `componentBoxes()` 的前 n 筆完全一致 ✓，
+ *  所以部件序列的 `data-box` 對得上 ✓）；孫從 n 起往後排 ✓。
+ *
+ *  停止條件與第 138 輪一致 ✓：**那一格自己有沒有手畫的筆劃** ✓——
+ *  有＝它就是葉（獨體）✓，不要再往下拆 ✗；沒有（純包裝）＝往下 ✓。
+ */
+export interface DescBox extends CompBox {
+  /** 投影到根座標的**絕對框**（優先墨跡緊框 ✓）；IDS-only 為 null ✓ */
+  abs: Box | null;
+  /** 0＝根的直接分量 ✓；1＝孫 ✓；2＝曾孫 ✓… */
+  depth: number;
+}
+
+/** 座標變換（子 → 父）：`x父 = k * x子 + tx` ✓ */
+interface Tf { k: number; tx: number; ty: number }
+const TF_ID: Tf = { k: 1, tx: 0, ty: 0 };
+const tfThen = (outer: Tf, inner: Tf): Tf =>
+  ({ k: outer.k * inner.k, tx: outer.k * inner.tx + outer.tx, ty: outer.k * inner.ty + outer.ty });
+const tfBox = (b: Box, t: Tf): Box => [b[0] * t.k + t.tx, b[1] * t.k + t.ty, b[2] * t.k + t.tx, b[3] * t.k + t.ty];
+
+/** 一格的座標變換 ✓——引擎對 kind-99 的語意是「**把子字形的墨跡等比縮放後置中**」✓
+ *  （`out/_probe-ids-frame.ts` 實測：框 [0,0,100,200] 裝 108×136 的墨 → 貼在 [0,37,100,163] ✓），
+ *  **不是**仿射填滿 ✗——`projectBox()` 只在墨跡長寬比剛好等於框時才與它一樣 ✓。
+ *  ⚠ 孫框要**一層一層把變換乘下去** ✓（每一步都用那一層的墨跡 ✓），不然誤差會累積 ✓。 */
+function placeTf(slot: Box, childInk: Box | null): Tf {
+  const sw = slot[2] - slot[0], sh = slot[3] - slot[1];
+  if (!childInk) return { k: 1, tx: slot[0], ty: slot[1] };
+  const cw = childInk[2] - childInk[0], ch = childInk[3] - childInk[1];
+  if (!(cw > 0) || !(ch > 0)) return { k: 1, tx: slot[0], ty: slot[1] };
+  const k = Math.min(sw / cw, sh / ch);
+  return { k, tx: slot[0] + (sw - cw * k) / 2 - childInk[0] * k,
+           ty: slot[1] + (sh - ch * k) / 2 - childInk[1] * k };
+}
+
+export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure): DescBox[] {
+  const measure: InkMeasure = inkOf ?? ((i: number) => inkBoundsFromStrokes(L, i));
+  const out: DescBox[] = [];
+  /** 把一層的框收進來 ✓；回傳「還值得往下走的引用」✓（帶它自己的座標變換 ✓）。 */
+  const emit = (boxes: CompBox[], tf: Tf, depth: number): { ref: number; tf: Tf }[] => {
+    const next: { ref: number; tf: Tf }[] = [];
+    for (const e of boxes) {
+      const canRef = e.ref >= 0 && e.ref < L.glyphs.length;
+      const ink = canRef ? measure(e.ref) : null;
+      const childTf = e.raw ? tfThen(tf, placeTf(e.raw, ink)) : null;
+      /* 有墨就畫「**墨跡的落點**」✓（引擎語意 ✓）；沒有墨（IDS-only）才退回它自己的框 ✓。 */
+      const abs = (ink && childTf) ? tfBox(ink, childTf)
+        : (e.raw ? tfBox(e.raw, tf) : (e.tight ? tfBox(e.tight, tf) : null));
+      out.push({ ...e, order: out.length, abs, depth });
+      /* 只往**真正的 KAGE 引用**走 ✓（`slotIx >= 0`）——
+         IDS 補的部件（`slotIx === -1`）在畫法裡不是一格巢狀的字形 ✗，往裡走會畫出假的框 ✗。 */
+      if (childTf && e.slotIx >= 0 && canRef) next.push({ ref: e.ref, tf: childTf });
+    }
+    return next;
+  };
+  const step = (from: { ref: number; tf: Tf }[], depth: number): void => {
+    if (depth > 12 || !from.length) return;
+    const next: { ref: number; tf: Tf }[] = [];
+    for (const n of from) {
+      const g = L.glyphs[n.ref];
+      if (!g) continue;
+      const hasOwn = g.strokes.some((s) => s.kind !== 99 && s.kind !== 0);
+      if (hasOwn) continue;                       /* 自己會畫＝葉（獨體）✓，停 ✓ */
+      next.push(...emit(componentBoxesShallow(L, n.ref, inkOf), n.tf, depth));
+    }
+    step(next, depth + 1);
+  };
+  step(emit(componentBoxesShallow(L, gi, inkOf), TF_ID, 0), 1);
+  return out;
+}
+
 /** 遞迴收集 ✓（`deep=false` 時與舊版**完全一樣** ✓：一次呼叫、不投影 ✓）。 */
 function collectBoxes(L: Library, gi: number, inkOf: InkMeasure | undefined, deep: boolean,
                       parentBox: Box | null, acc: { box: Box | null; out: CompBox[] }[], depth: number): void {

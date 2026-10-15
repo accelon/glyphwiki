@@ -152,6 +152,9 @@ const html = `<!DOCTYPE html>
   .cbox { fill:color-mix(in srgb, var(--c) 11%, transparent); stroke:var(--c); stroke-width:1.4; cursor:pointer; }
   .cbox:hover { fill:color-mix(in srgb, var(--c) 24%, transparent); stroke-width:2.2; }
   .cbox.on { fill:color-mix(in srgb, var(--c) 30%, transparent); stroke-width:2.6; }
+  /* ★ 「字框：孫」——深層的子孫框畫成**虛線、細一點、淡一點** ✓，
+     一眼分得出「直屬」與「更深」✓（顏色照 order ✓）。 */
+  .cbox.sub { stroke-dasharray:3 2.5; stroke-width:1; fill-opacity:.22; }
 
   /* ---- 3. 部件序列 ----
      樣式在上面（跟大字同一區塊），這裡只留兩頁共用 markup 會用到的部分。 */

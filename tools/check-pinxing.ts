@@ -305,10 +305,12 @@ if (!existsSync(EDGE)) {
       try {
         function modeInfo(tag) {
           out.push(tag + "N=" + document.querySelectorAll("#big .cbox").length);
+          out.push(tag + "S=" + document.querySelectorAll("#big .cbox.sub").length);
           out.push(tag + "T=" + encodeURIComponent(b.textContent));
           out.push(tag + "M=" + b.getAttribute("data-mode"));
           out.push(tag + "P=" + document.querySelectorAll("#big svg path").length);
         }
+        b.click(); modeInfo("Fdeep");
         b.click(); modeInfo("Fraw");
         b.click(); modeInfo("Fnone");
         b.click(); modeInfo("Fback");
@@ -318,6 +320,30 @@ if (!existsSync(EDGE)) {
         out.push("FactiveChip=" + document.querySelectorAll("#seqChips .mini.comp.on").length);
         out.push("FactiveBox=" + document.querySelectorAll("#big .cbox.on").length);
       } catch (e) { out.push("FEXC=" + e.message); }
+    },
+    /* --- 「字框：孫」：所有子孫的框（直到獨體）--- */
+    function () {
+      var seqv = seqEl().value;
+      setSeq("想");
+      var b = document.getElementById("boxMode");
+      while (b.getAttribute("data-mode") !== "tight") b.click();   /* 先回到緊 ✓ */
+      out.push("Dtight=" + document.querySelectorAll("#big .cbox").length);
+      out.push("DtightSub=" + document.querySelectorAll("#big .cbox.sub").length);
+      b.click();                                                   /* 緊 → 孫 ✓ */
+      out.push("Dmode=" + b.getAttribute("data-mode"));
+      out.push("Dlabel=" + encodeURIComponent(b.textContent));
+      out.push("Dall=" + document.querySelectorAll("#big .cbox").length);
+      out.push("Dsub=" + document.querySelectorAll("#big .cbox.sub").length);
+      out.push("Ddirect=" + document.querySelectorAll("#big .cbox:not(.sub)").length);
+      out.push("Dpaths=" + document.querySelectorAll("#big svg path").length);
+      out.push("Dchips=" + document.querySelectorAll("#seqChips .mini.comp").length);
+      /* 孫框**不可以**連動 ✓（它沒有對應的部件格 ✓） */
+      var dsub = document.querySelector("#big .cbox.sub");
+      if (dsub) dsub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      out.push("DsubClickOn=" + document.querySelectorAll("#big .cbox.on").length);
+      b.click(); b.click(); b.click();                             /* 孫 → 原 → 無 → 緊 ✓ */
+      out.push("Dback=" + b.getAttribute("data-mode"));
+      setSeq(seqv);
     },
     /* --- 筆劃粗細：拉了要真的重畫 --- */
     function () {
@@ -900,6 +926,9 @@ if (!existsSync(EDGE)) {
 
     // ---- 大字的框與三態切換
     num("Fboxes") > 0 ? ok(`大字上畫了 ${num("Fboxes")} 個部件框（data-box=${txt("FboxData")}）`) : bad("大字上沒有框");
+    txt("FdeepM") === "deep" && num("FdeepN") > 0 && /字框：孫/.test(txt("FdeepT"))
+      ? ok(`字框切到「孫」：${txt("FdeepT")}（${num("FdeepN")} 個框 ✓）`)
+      : bad(`孫框那一段不對：${txt("FdeepM")}／${num("FdeepN")}／${txt("FdeepT")}`);
     txt("FrawM") === "raw" && num("FrawN") > 0 && /字框：原/.test(txt("FrawT"))
       ? ok(`字框切到「原始 KAGE 框」：${txt("FrawT")}（${num("FrawN")} 個框）`)
       : bad(`原始框那一段不對：${txt("FrawM")}／${txt("FrawN")}／${txt("FrawT")}`);
@@ -907,11 +936,23 @@ if (!existsSync(EDGE)) {
       ? ok(`字框切到「不顯示」：沒有框但字形還在（${num("FnoneP")} 條筆畫路徑）`)
       : bad(`「不顯示框」不對：${txt("FnoneM")}／框 ${num("FnoneN")}／路徑 ${num("FnoneP")}`);
     txt("FbackM") === "tight" && num("FbackN") > 0
-      ? ok(`再按一下回到「墨跡緊框」（三態循環）`) : bad(`三態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
+      ? ok(`再按一下回到「墨跡緊框」（四態循環 ✓）`) : bad(`四態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
     num("FactiveBox") > 0 && num("FactiveChip") > 0
       ? ok(`點框 → 框與部件序列互相亮起（框 ${num("FactiveBox")} 個、清單 ${num("FactiveChip")} 格）`)
       : bad(`框／清單連動沒生效：框 ${num("FactiveBox")}、清單 ${num("FactiveChip")}` +
             `（clicked=${txt("Fclicked")} EXC=${txt("FEXC")}）`);
+
+    // ---- 「字框：孫」：所有子孫的框（直到獨體）
+    txt("Dmode") === "deep" && /字框：孫/.test(txt("Dlabel"))
+      ? ok(`字框切到「孫」：${txt("Dlabel")}（data-mode=${txt("Dmode")}）`)
+      : bad(`孫框模式不對：${txt("Dmode")}／${txt("Dlabel")}`);
+    num("Dsub") > 0 && num("Dall") > num("Dtight") && num("DtightSub") === 0
+      ? ok(`「想」的孫框：直接 ${num("Ddirect")} 個（＝緊框 ${num("Dtight")} 個）＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
+      : bad(`孫框數量不對：緊 ${num("Dtight")}（sub ${num("DtightSub")}）→ 孫 ${num("Dall")}（sub ${num("Dsub")}）`);
+    num("DsubClickOn") === 0
+      ? ok("點孫框不會誤亮部件格（孫框沒有對應的部件 ✓）")
+      : bad(`點孫框竟然亮了 ${num("DsubClickOn")} 個框`);
+    txt("Dback") === "tight" ? ok("孫 → 原 → 無 → 緊：四態循環回到緊 ✓") : bad(`四態循環壞了：${txt("Dback")}`);
 
     // ---- 粗細
     txt("Gchanged") === "true" ? ok(`拉粗細 → 真的重畫（${txt("label")}）`) : bad("拉粗細沒有重畫");

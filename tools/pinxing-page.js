@@ -141,7 +141,7 @@ function fillKageIn(kage, lib, i) {
 }
 
 /** 粗細改了：兩份快取都要清（共用層的 ＋ 這一頁自己的） */
-function clearAllCache() { clearDrawCache(); seqSvgCache.clear(); seqInkCache.clear(); }
+function clearAllCache() { clearDrawCache(); seqSvgCache.clear(); seqInkCache.clear(); if (MAIN) MAIN.deep = null; }
 
 /* ============================ 畫面上那一個大字 ============================ */
 /* MAIN ＝ { lib, idx, boxes, ink } ——「現在畫的是哪個庫裡的哪個字形」。 */
@@ -150,7 +150,19 @@ var MAIN = null;
 function setMain(lib, idx) {
   if (lib === null || idx === undefined || idx === null || idx < 0) { MAIN = null; return; }
   var boxes = lib === LIB ? boxesOfGlyph(idx) : componentBoxes(lib, idx, function (i) { return inkOfLib(lib, i); });
-  MAIN = { lib: lib, idx: idx, boxes: boxes, ink: lib === LIB ? inkOfGlyph(idx) : inkOfLib(lib, idx) };
+  MAIN = { lib: lib, idx: idx, boxes: boxes, ink: lib === LIB ? inkOfGlyph(idx) : inkOfLib(lib, idx), deep: null };
+}
+
+/** **孫框**（`字框：孫`）用的那一組框 ✓；算一次就快取在 `MAIN.deep` ✓（粗細改了要清 ✓）。 */
+function deepBoxesOfMain() {
+  if (!MAIN) return [];
+  if (!MAIN.deep) {
+    try {
+      MAIN.deep = MAIN.lib === LIB ? descendantBoxes(LIB, MAIN.idx, inkOfGlyph)
+        : descendantBoxes(MAIN.lib, MAIN.idx, function (i) { return inkOfLib(MAIN.lib, i); });
+    } catch (e) { MAIN.deep = []; }
+  }
+  return MAIN.deep;
 }
 
 function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
@@ -1624,13 +1636,15 @@ function flashSeq(kind) {
   flashTimer = setTimeout(function () { el.classList.remove("flash-ok", "flash-warn"); }, 750);
 }
 
-/** 字框三態（墨跡緊框／原始 KAGE 框／不顯示）的按鈕標籤。 */
+/** 字框**四態**（墨跡緊框／**孫框**／原始 KAGE 框／不顯示）的按鈕標籤。 */
 function applyBoxMode() {
   var b = $("boxMode");
   if (!b) return;
   b.setAttribute("data-mode", BOXMODE);
-  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "raw" ? "字框：原" : "字框：無";
+  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "deep" ? "字框：孫"
+    : BOXMODE === "raw" ? "字框：原" : "字框：無";
   b.title = BOXMODE === "tight" ? "顯示墨跡緊框（預設）"
+    : BOXMODE === "deep" ? "顯示所有子孫的框（一直到獨體部件）"
     : BOXMODE === "raw" ? "顯示原始 KAGE 引用框" : "不顯示字框";
 }
 
@@ -1697,7 +1711,7 @@ function stockCompose(seq) {
 var BOXMODE = "tight";
 try {
   var savedBox = localStorage.getItem(LS_BOX);
-  if (savedBox === "raw" || savedBox === "none" || savedBox === "tight") BOXMODE = savedBox;
+  if (savedBox === "raw" || savedBox === "none" || savedBox === "tight" || savedBox === "deep") BOXMODE = savedBox;
 } catch (e) { }
 var ACTIVE_BOX = -1;
 
@@ -1974,7 +1988,8 @@ function renderBig(scroll) {
   try {
     $("big").innerHTML = BOXMODE === "none"
       ? mainSvg()
-      : bigSvgHtml(mainSvg(), MAIN.boxes, { mode: BOXMODE, active: ACTIVE_BOX });
+      : bigSvgHtml(mainSvg(), BOXMODE === "deep" ? deepBoxesOfMain() : MAIN.boxes,
+                   { mode: BOXMODE, active: ACTIVE_BOX });
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
   }
@@ -2123,9 +2138,9 @@ function bind() {
     renderSeq(lastEval);
   });
 
-  /* 字框：三態（緊 → 原 → 無） */
+  /* 字框：**四態**（緊 → 孫 → 原 → 無） */
   $("boxMode").addEventListener("click", function () {
-    BOXMODE = BOXMODE === "tight" ? "raw" : BOXMODE === "raw" ? "none" : "tight";
+    BOXMODE = BOXMODE === "tight" ? "deep" : BOXMODE === "deep" ? "raw" : BOXMODE === "raw" ? "none" : "tight";
     try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
     applyBoxMode();
     renderBig(false);
@@ -2134,7 +2149,8 @@ function bind() {
   /* 點大字的框 ↔ 部件序列互相亮起 */
   $("big").addEventListener("click", function (e) {
     var r = e.target.closest ? e.target.closest(".cbox") : null;
-    ACTIVE_BOX = r ? Number(r.getAttribute("data-box")) : -1;
+    /* 孫框（深層）沒有 data-box ✓——不要當成第 0 個部件 ✗ */
+    ACTIVE_BOX = (r && r.hasAttribute("data-box")) ? Number(r.getAttribute("data-box")) : -1;
     renderBig(false);
     renderSeq(lastEval);
   });

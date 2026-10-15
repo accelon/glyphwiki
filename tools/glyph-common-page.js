@@ -118,7 +118,10 @@ function boxColor(order) { return hsv(BOX_HUES[order % BOX_HUES.length], 0.72, 1
  * 大字上的部件框。回傳 `<g>` 片段，直接接在字形的 svg 內容後面即可
  * ——兩邊都是 `viewBox="0 0 200 200"`，座標不必換算。
  *
- * opt = { mode: "tight" | "raw", active: <order 或 -1>, show: true }
+ * opt = { mode: "tight" | "raw" | "deep", active: <order 或 -1>, show: true }
+ *
+ * `deep`（「字框：孫」✓）＝每一格用 `abs`（投影到根座標的絕對框 ✓，見 `descendantBoxes()` ✓）；
+ * 深度 >= 1 的框畫成**虛線**、且**不帶 `data-box`** ✓（它沒有對應的部件格 ✓）。
  *
  * **面積由大到小排序**：SVG 的文件序在後＝命中優先，所以小框自然疊在上面、
  * 一定點得到——這就是「較小的框 z-index 較大」。巢狀的部件（框包框）靠這一條。
@@ -137,25 +140,29 @@ function boxOverlaySvg(boxes, opt) {
  */
 function boxRectsSvg(boxes, opt) {
   if (!boxes || !boxes.length) return "";
-  var mode = opt && opt.mode === "raw" ? "raw" : "tight";
+  var mode = opt && opt.mode === "raw" ? "raw" : opt && opt.mode === "deep" ? "deep" : "tight";
   var active = opt && opt.active !== undefined ? opt.active : -1;
   var items = [];
   for (var k = 0; k < boxes.length; k++) {
     var b = boxes[k];
-    var r = mode === "raw" ? b.raw : b.tight;
+    /* 「孫」模式用**投影到根座標的絕對框**（`abs` ✓，來自 descendantBoxes ✓） */
+    var r = mode === "raw" ? b.raw : mode === "deep" ? (b.abs || b.tight) : b.tight;
     if (!r) continue;                    /* IDS-only：沒有框可畫 */
-    items.push({ order: b.order, x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] });
+    items.push({ order: b.order, depth: b.depth || 0, x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] });
   }
   items.sort(function (a, c) { return c.w * c.h - a.w * a.h; });
   var out = [];
   for (var i = 0; i < items.length; i++) {
     var it = items[i];
-    out.push('<rect class="cbox' + (it.order === active ? " on" : "") +
-      '" data-box="' + it.order + '"' +
+    /* 深層的孫框：虛線、細一點、**不連動** ✓（沒有對應的部件格 ✓） */
+    var sub = mode === "deep" && it.depth > 0;
+    out.push('<rect class="cbox' + (sub ? " sub" : "") + (it.order === active && !sub ? " on" : "") +
+      '"' + (sub ? ' data-depth="' + it.depth + '"' : ' data-box="' + it.order + '"') +
       ' x="' + it.x.toFixed(1) + '" y="' + it.y.toFixed(1) + '"' +
       ' width="' + Math.max(1, it.w).toFixed(1) + '" height="' + Math.max(1, it.h).toFixed(1) + '"' +
       ' style="--c:' + boxColor(it.order) +
-      '"><title>第 ' + (it.order + 1) + " 個部件</title></rect>");
+      '"><title>' + (sub ? "第 " + (it.depth + 1) + " 代（第 " + (it.order + 1) + " 個框）"
+                         : "第 " + (it.order + 1) + " 個部件") + "</title></rect>");
   }
   return out.join("");
 }
