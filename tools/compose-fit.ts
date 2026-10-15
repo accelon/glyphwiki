@@ -138,6 +138,42 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
   return inkBoxOfPolygons(polys).box;
 }
 
+/** 路徑上那一格**自己手畫的筆劃**（不含任何引用）投影到根座標的墨跡框 ✓。
+ *  用途：「寶缶支」的 𡩧 保留了 王（手畫筆劃 ✓）、缶 被換成 支 ✓——
+ *  那個 王 沒有引用、不能用 inkOfPathInRoot 量，所以另外量它 ✓。 */
+export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | null {
+  ensureEngine();
+  if (!path.length) return null;
+  const levels: { s: any }[] = [];
+  let g = drawingIdx(L, rootIdx);
+  for (let i = 0; i < path.length; i++) {
+    const gg = L.glyphs[g];
+    if (!gg) return null;
+    const s = gg.strokes[path[i]!] as any;
+    if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
+    levels.push({ s });
+    g = drawingIdx(L, s.ref as number);
+  }
+  const node = L.glyphs[g];
+  if (!node) return null;
+  const own = node.strokes.filter((s: any) => s.kind !== 99);
+  if (!own.length) return null;
+  const fake: any = { strokes: own };
+  const kage = new Kage();
+  kage.kBuhin.push("__own", toKageData(fake, L));
+  let childName = "__own";
+  for (let i = levels.length - 1; i >= 0; i--) {
+    const name = "__owndeep" + i;
+    const s = levels[i]!.s;
+    const stretch = (s.stretch as number[]) ?? [0, 0, 0, 0];
+    kage.kBuhin.push(name, "99:0:0:" + (s.box as number[]).join(":") + ":" + childName + ":" + stretch.join(":"));
+    childName = name;
+  }
+  const polys = new Polygons();
+  kage.makeGlyph(polys, childName);
+  return inkBoxOfPolygons(polys).box;
+}
+
 /** 只畫**路徑上那一個部件**的圖形（根座標）——用來把選中的部件**染成框的顏色**
  *  （師父 2026-10-15：選框時，屬於它的筆劃要**和框同色**、不要白色）。
  *  作法與 inkOfPathInRoot() 完全相同（把整條鏈做成合成字形再交給引擎），

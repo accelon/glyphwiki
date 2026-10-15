@@ -353,6 +353,30 @@ if (!existsSync(EDGE)) {
         out.push("Fbox0c=" + (b0 ? b0.style.getPropertyValue("--c") : ""));
       } catch (e) { out.push("FEXC=" + e.message); }
     },
+    /* --- 手畫的部件（寶缶支 的 王）＋ 藏框時仍能塗色（師父 2026-10-16） --- */
+    function () {
+      var seqv = seqEl().value;
+      var mid = document.getElementById("showMid");
+      if (mid && mid.checked) { mid.checked = false; mid.dispatchEvent(new Event("change")); }
+      setSeq("寶缶支");
+      out.push("Kchips=" + document.querySelectorAll("#seqChips .mini.comp").length);
+      out.push("Ktips=" + encodeURIComponent(Array.prototype.map.call(
+        document.querySelectorAll("#seqChips .mini.comp"), function (m) { return (m.getAttribute("title") || "").slice(0, 6); }).join("|")));
+      out.push("Kboxes=" + document.querySelectorAll("#big .cbox").length);
+      /* 藏起字框 → 塗色還是要能和部件清單連動 ✓ */
+      var kb = document.getElementById("boxMode");
+      if (kb.getAttribute("data-mode") !== "none") kb.click();
+      out.push("Kmode=" + kb.getAttribute("data-mode") + "/" + document.querySelectorAll("#big .cbox").length);
+      var kchip = document.querySelector("#seqChips .mini.comp");
+      if (kchip) kchip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      var klay = document.querySelector("#big .hllayer");
+      out.push("Khl=" + (klay ? klay.querySelectorAll("path").length : -1));
+      out.push("KhFill=" + (klay && klay.querySelector("path") ? klay.querySelector("path").getAttribute("fill") : ""));
+      out.push("KhBox=" + (kchip ? kchip.style.getPropertyValue("--c") : ""));
+      if (kchip) kchip.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+      if (kb.getAttribute("data-mode") === "none") kb.click();
+      setSeq(seqv);
+    },
     /* --- 「字框：孫」：所有子孫的框（直到獨體）--- */
     function () {
       var seqv = seqEl().value;
@@ -1017,6 +1041,16 @@ if (!existsSync(EDGE)) {
       ? ok(`選中的部件筆劃＝框色 ${txt("FhlFill")}（${num("FhlPaths")} 條路徑 ✓、不是白色 ✓）`)
       : bad(`選中的部件沒有染成框色：paths=${num("FhlPaths")} fill=${txt("FhlFill")} box=${txt("Fbox0c")}`);
 
+    // ---- 手畫的部件（寶缶支 的 王）＋ 藏框時仍能塗色
+    num("Kchips") === 4 && /U\+738B/.test(txt("Ktips"))
+      ? ok(`「寶缶支」不顯示中間部件：4 格（含手畫的 王 U+738B ✓）`)
+      : bad(`「寶缶支」的部件清單不對：${num("Kchips")} 格／${txt("Ktips")}`);
+    num("Kboxes") === num("Kchips")
+      ? ok(`框數＝清單格數（${num("Kboxes")} ✓）`)
+      : bad(`框數與清單不合：框 ${num("Kboxes")}／清單 ${num("Kchips")}`);
+    txt("Kmode") === "none/0" && num("Khl") > 0 && txt("KhFill") === txt("KhBox") && txt("KhBox") !== ""
+      ? ok(`藏起字框時，塗色照樣和部件清單連動（${num("Khl")} 條路徑＝${txt("KhFill")} ✓）`)
+      : bad(`藏框後塗色失效：mode=${txt("Kmode")} paths=${num("Khl")} fill=${txt("KhFill")} box=${txt("KhBox")}`);
     // ---- 中間部件：孫框（所有子孫）
     txt("Dmode") === "show" && /字框：顯/.test(txt("Dlabel"))
       ? ok(`字框顯示中（${txt("Dlabel")}）；孫框由「中間部件」決定 ✓`)

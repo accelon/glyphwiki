@@ -183,6 +183,55 @@ function isComposed() { return !!(MAIN && MAIN.lib && MAIN.lib !== LIB); }
  *  作法：從根往下走；**只有「在副本裡被改過」的節點才繼續往下** ✓——
  *  沒有被改過的節點（＝庫裡現成的字形）就是一個**用到的部件** ✓，不再拆它的內部 ✓。
  *  框一樣直接問**引擎** ✓（見 inkOfPathInRoot ✓）。 */
+
+/** 序列 log 裡**被換掉的舊部件**（「X 的 **Y** → Z」的 Y ✓）；用來判斷手畫筆劃代表什麼 ✓。 */
+function oldCharsOf(st) {
+  var set = {}, log = st && st.eval && st.eval.log;
+  if (!log) return set;
+  for (var i = 0; i < log.length; i++) {
+    var m = /^([^ ]+) 的 ([^ ]+) →/.exec(log[i]);
+    if (m) set[m[2]] = 1;
+  }
+  return set;
+}
+
+/** ★ 師父 2026-10-16：這一格**手畫的筆劃**對應到哪些「沒被換掉、又沒有引用」的 IDS 部件 ✓。
+ *  例：「寶缶支」的 𡩧（= 宀 + 珤，珤 = 王 + 缶）——引擎把 缶 換成 支 ✓、
+ *  **王 留在原地變成手畫筆劃** ✓，所以 王 不會出現在引用清單裡 ✗，要在這裡補 ✓。
+ *  回傳 `[{ ci, at }]`：`ci`＝那個部件的字形索引 ✓、`at`＝插在第幾筆之前 ✓。 */
+function rawPartsOf(gi) {
+  var out = [];
+  if (!MAIN || gi < 0 || !MAIN.lib.glyphs[gi]) return out;
+  var g = MAIN.lib.glyphs[gi];
+  var firstOwn = -1, ownCount = 0;
+  for (var i = 0; i < g.strokes.length; i++) {
+    var s = g.strokes[i];
+    if (s.kind === 99 || s.kind === 0) continue;
+    if (firstOwn < 0) firstOwn = i;
+    ownCount++;
+  }
+  if (!ownCount || !MAIN.lib.comp) return out;
+  var cp = codePointOf(MAIN.lib, gi);
+  var ids = cp ? MAIN.lib.comp.get(cp) : null;
+  if (!ids || !ids.length) return out;
+  var olds = oldCharsOf(lastEval);
+  var have = {}, kids = refSlotsOf(MAIN.lib, gi);
+  for (var k = 0; k < kids.length; k++) {
+    var kcp = codePointOf(MAIN.lib, kids[k].ref);
+    if (kcp) have[kcp] = 1;
+  }
+  var stack = ids.slice(), guard = 0;
+  while (stack.length && guard++ < 40) {
+    var c = stack.shift();
+    if (!c || olds[String.fromCodePoint(c)] || have[c]) continue;
+    var sub = MAIN.lib.comp.get(c);
+    if (sub && sub.length) { for (var m = 0; m < sub.length; m++) stack.push(sub[m]); continue; }
+    var ci = indexOfCodePoint(MAIN.lib, c);
+    if (ci !== undefined) out.push({ ci: ci, at: firstOwn + out.length });
+  }
+  return out;
+}
+
 function frontierBoxesOfMain() {
   var out = [];
   if (!MAIN) return out;
@@ -197,8 +246,28 @@ function frontierBoxesOfMain() {
   var walk = function (g, path, depth) {
     var gi = drawingIdx(MAIN.lib, g);
     var slots = refSlotsOf(MAIN.lib, gi);
-    for (var k = 0; k < slots.length; k++) {
-      var s = slots[k];
+    /* ★ 師父 2026-10-16：這一格**自己手畫的筆劃**如果對應到「沒被換掉、又沒有引用」的
+       IDS 部件（例「寶缶支」的 𡩧 保留了 **王** ＝ 手畫 ✓、缶 被換成 支 ✓），
+       就把它插在**正確的筆劃位置** ✓（它畫在兩個引用之間 ✓）。 */
+    var extras = rawPartsOf(gi);
+    var items = [];
+    for (var k = 0; k < slots.length; k++) items.push({ six: slots[k].strokeIx, slot: slots[k], ix: k });
+    for (var r = 0; r < extras.length; r++) items.push({ six: extras[r].at, extra: extras[r].ci });
+    items.sort(function (a, b) { return a.six - b.six; });
+    var ExtraBox = null, extraTried = false;
+    for (var q = 0; q < items.length; q++) {
+      var it = items[q];
+      if (it.extra !== undefined) {
+        if (!extraTried) {
+          extraTried = true;
+          try { var ob = inkOfOwnInRoot(MAIN.lib, MAIN.idx, path); if (ob) ExtraBox = [ob.x1, ob.y1, ob.x2, ob.y2]; } catch (e3) { }
+        }
+        out.push({ ref: it.extra, refName: "", slotIx: -1, strokeIx: -1,
+                   raw: ExtraBox, tight: ExtraBox, idsOnly: true, order: out.length,
+                   abs: ExtraBox, depth: depth, path: null });
+        continue;
+      }
+      var k = it.ix, s = it.slot;
       var p = path.concat(s.strokeIx);
       var box = null;
       try {
@@ -2254,8 +2323,10 @@ function renderBig(scroll) {
     else { bx = MAIN.boxes; }
     /* ★ 選中的部件：筆劃染成框色 ✓（獨立一層 `.hllayer`，**在框層下面** ✓） */
     var hl = '<svg class="hllayer" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"></svg>';
+    /* ★ 師父 2026-10-16：**藏起字框時，筆劃塗色照樣要能動** ✓——
+       所以 `.hllayer` 一定要留著 ✓（只和部件清單連動 ✓，和有沒有框無關 ✓）。 */
     $("big").innerHTML = BOXMODE === "none"
-      ? mainSvg()
+      ? mainSvg() + hl
       : bigSvgHtml(mainSvg() + hl, bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
     paintActiveStrokes(ACTIVE_BOX);
   } catch (e) {
