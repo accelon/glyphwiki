@@ -122,6 +122,8 @@ const html = `<!DOCTYPE html>
                background:var(--card); color:var(--fg); cursor:pointer; }
   .mini.comp:hover { border-color:var(--c); box-shadow:0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
   .mini.comp.on { border-color:var(--c); background:color-mix(in srgb, var(--c) 22%, var(--card)); }
+  /* 滑過大字的框時，對應的那一格也亮 ✓（見 pinxing-page.js 的 hoverChip ✓） */
+  .mini.comp.hover { border-color:var(--c); box-shadow:0 0 0 2px color-mix(in srgb, var(--c) 40%, transparent); }
   .mini.comp.idsonly { border-style:dashed; }
   /* 無名的部件（字庫裡沒有碼位、也沒有 IDS）＝只看得到，換不掉 */
   .mini.comp.unnamed, .mini.comp.stuck { border-style:dashed; opacity:.72; cursor:default; }
@@ -155,6 +157,10 @@ const html = `<!DOCTYPE html>
   /* ★ 「字框：孫」——深層的子孫框畫成**虛線、細一點、淡一點** ✓，
      一眼分得出「直屬」與「更深」✓（顏色照 order ✓）。 */
   .cbox.sub { stroke-dasharray:3 2.5; stroke-width:1; fill-opacity:.22; }
+  /* ⚠ 孫框的「.sub」會蓋掉「.cbox:hover」／「.cbox.on」的同等特異度規則 ✗——
+     要**自己再寫一份** ✓，否則滑過去／選中都不會亮（師父 2026-10-15 回報 ✓）。 */
+  .cbox.sub:hover { stroke-dasharray:none; stroke-width:2; fill-opacity:.42; }
+  .cbox.sub.on { stroke-dasharray:none; stroke-width:2.6; fill-opacity:.55; }
 
   /* ---- 3. 部件序列 ----
      樣式在上面（跟大字同一區塊），這裡只留兩頁共用 markup 會用到的部分。 */

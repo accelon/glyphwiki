@@ -178,8 +178,10 @@ function boxRectsSvg(boxes, opt) {
     var tip = L ? boxTipText(L, it)
       : (sub ? "第 " + (it.depth + 1) + " 代（第 " + (it.order + 1) + " 個框）"
              : "第 " + (it.order + 1) + " 個部件");
-    out.push('<rect class="cbox' + (sub ? " sub" : "") + (it.order === active && !sub ? " on" : "") +
-      '"' + (sub ? ' data-depth="' + it.depth + '"' : ' data-box="' + it.order + '"') +
+    /* ★ 孫框也**帶 `data-box`** ✓、也能 `.on` ✓——這樣才能和右邊的部件清單互相亮起 ✓
+       （原本孫框只有 `data-depth`、點它不會亮 ✗，師父 2026-10-15 回報 ✓）。 */
+    out.push('<rect class="cbox' + (sub ? " sub" : "") + (it.order === active ? " on" : "") +
+      '" data-box="' + it.order + '"' + (sub ? ' data-depth="' + it.depth + '"' : "") +
       ' x="' + it.x.toFixed(1) + '" y="' + it.y.toFixed(1) + '"' +
       ' width="' + Math.max(1, it.w).toFixed(1) + '" height="' + Math.max(1, it.h).toFixed(1) + '"' +
       ' style="--c:' + boxColor(it.order) +

@@ -339,10 +339,11 @@ if (!existsSync(EDGE)) {
       out.push("Dchips=" + document.querySelectorAll("#seqChips .mini.comp").length);
       out.push("Dtips=" + encodeURIComponent(Array.prototype.map.call(
         document.querySelectorAll("#big .cbox title"), function (t) { return t.textContent; }).join(" | ")));
-      /* 孫框**不可以**連動 ✓（它沒有對應的部件格 ✓） */
+      /* ★ 孫框**可以**連動 ✓（師父 2026-10-15 的要求：點它要和部件清單互相亮起 ✓） */
       var dsub = document.querySelector("#big .cbox.sub");
       if (dsub) dsub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       out.push("DsubClickOn=" + document.querySelectorAll("#big .cbox.on").length);
+      out.push("DsubChipOn=" + document.querySelectorAll("#seqChips .mini.comp.on").length);
       b.click(); b.click(); b.click();                             /* 孫 → 原 → 無 → 緊 ✓ */
       out.push("Dback=" + b.getAttribute("data-mode"));
       setSeq(seqv);
@@ -701,6 +702,7 @@ if (!existsSync(EDGE)) {
         var lv2 = window.ladderForIds ? window.ladderForIds("⿳𦥯⿰女孔皿", 5) : null;
         out.push("Plive孔孟=" + encodeURIComponent(lv2 ? (lv2.seq + "｜步" + lv2.nSteps + "｜覆蓋" + lv2.cover.toFixed(3)) : "null"));
       } catch (eLv) { out.push("Plive五行=" + encodeURIComponent("例外 " + eLv.message)); }
+      out.push("PidsParts=" + document.querySelectorAll("#seqChips .mini.comp").length);
       out.push("Pids=" + encodeURIComponent(idsTop) + ",mode=" + S().mode +
         ",stageHidden=" + String(!!document.getElementById("sugStage").hidden) +
         ",cap=" + encodeURIComponent((document.getElementById("sugCap") || {}).textContent || ""));
@@ -951,9 +953,12 @@ if (!existsSync(EDGE)) {
     num("Dsub") > 0 && num("Dall") > num("Dtight") && num("DtightSub") === 0
       ? ok(`「想」的孫框：直接 ${num("Ddirect")} 個（＝緊框 ${num("Dtight")} 個）＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
       : bad(`孫框數量不對：緊 ${num("Dtight")}（sub ${num("DtightSub")}）→ 孫 ${num("Dall")}（sub ${num("Dsub")}）`);
-    num("DsubClickOn") === 0
-      ? ok("點孫框不會誤亮部件格（孫框沒有對應的部件 ✓）")
-      : bad(`點孫框竟然亮了 ${num("DsubClickOn")} 個框`);
+    num("DsubClickOn") === 1 && num("DsubChipOn") === 1
+      ? ok("點孫框 → **框與部件清單互相亮起** ✓（師父 2026-10-15 的要求 ✓）")
+      : bad(`點孫框的連動不對：框 ${num("DsubClickOn")} 個、清單 ${num("DsubChipOn")} 格`);
+    num("Dchips") === num("Dall")
+      ? ok(`孫模式的部件清單＝所有子孫（${num("Dchips")} 格＝框數 ${num("Dall")} ✓）`)
+      : bad(`孫模式的部件清單格數不對：清單 ${num("Dchips")}／框 ${num("Dall")}`);
     /* ★ 師父第 163 輪（補）：框的提示要給**碼位 ＋ 第幾號異形** ✓，不再是「第 n 個部件」✗ */
     /U\+[0-9A-F]{4,6}/.test(txt("Dtips")) && /第 \d+ 號異形/.test(txt("Dtips")) && !/個部件/.test(txt("Dtips"))
       ? ok(`框的提示＝「碼位 ＋ 第幾號異形」：${txt("Dtips").slice(0, 70)}… ✓`)
@@ -1326,6 +1331,9 @@ if (!existsSync(EDGE)) {
          大字則是 IDC 等比分配（醜 ✓）——兩者一起才會有「接受建議、字突然變美」的驚嘆 ✓。 */
       const idsChar = txt("PidsChar");
       const idsChar2 = txt("PidsChar2");
+      num("PidsParts") > 0
+        ? ok(`構字式（IDS）也有部件清單：${num("PidsParts")} 格 ✓（以前是空的 ✗）`)
+        : bad("構字式（IDS）的部件清單是空的 ✗（師父 2026-10-15 回報）");
       /試試「好」/.test(idsChar) && /mode=ids,/.test(idsChar)
         ? ok(`貼「⿰女子」→ 文字推薦「好」（U+597D）✓、大字是等比分配的醜形 ✓`)
         : bad(`「⿰女子」沒有推薦「好」：${idsChar}`);

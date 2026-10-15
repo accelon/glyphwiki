@@ -1121,8 +1121,56 @@ function inkWarningOf(st, r) {
   } catch (e) { return ""; }
 }
 
+/** 滑過大字的框 → 把對應的那一格加上 `hover` ✓（滑出＝全部清掉 ✓）。
+ *  孫框、構字式的方塊都靠這一條才看得出「框 ↔ 清單」的對應 ✓（師父 2026-10-15 的要求 ✓）。 */
+function hoverChip(box) {
+  var ms = document.querySelectorAll("#seqChips .mini.comp");
+  for (var i = 0; i < ms.length; i++) {
+    var on = box >= 0 && Number(ms[i].getAttribute("data-box")) === box;
+    if (on) ms[i].classList.add("hover"); else ms[i].classList.remove("hover");
+  }
+}
+
+/** 把一組框畫成「部件清單」的格子 ✓——**只看得到、不能換** ✓。
+ *
+ *  用於沒有「替換槽位」語意的兩處：
+ *  ① **構字式（IDS）** ✓——清單＝構字式的那幾塊（以前整段清空 ✗，
+ *     師父 2026-10-15 回報「點庫存 IDS，部件清單都是空的」✓）；
+ *  ② **字框：孫** ✓——清單＝所有子孫的框（點框／點格子才互相亮得起來 ✓）。
+ *  `data-box` 是連動的鑰匙 ✓（大字的框也帶同一個號碼 ✓）。 */
+function renderBoxChips(boxes, capText) {
+  var el = $("seqChips"), cap = $("seqNote"), note = $("philNote");
+  if (note) note.textContent = "";
+  if (!boxes || !boxes.length) { el.innerHTML = ""; cap.textContent = ""; return; }
+  var L = (MAIN && MAIN.lib) ? MAIN.lib : LIB;
+  var h = [];
+  for (var k = 0; k < boxes.length; k++) {
+    var b = boxes[k];
+    var depth = b.depth || 0;
+    var label = depth > 0 ? (depth === 1 ? "孫" : "孫" + depth) : "";
+    var tip = "";
+    try { tip = boxTipText(L, b); } catch (e0) { tip = ""; }
+    tip += (depth > 0 ? "　第 " + (depth + 1) + " 代" : "") + "　（只看得到；點一下＝選它 ✓）";
+    var g = "";
+    try { g = b.ref >= 0 ? glyphSvg(b.ref) : ""; } catch (e1) { g = ""; }
+    h.push('<div class="mini comp idsonly' + (b.order === ACTIVE_BOX ? " on" : "") + '"' +
+      ' data-box="' + b.order + '"' +
+      ' style="--bc:' + colorOfGlyph(b.ref) + ';--c:' + boxColor(b.order) + '"' +
+      ' title="' + tip + '">' +
+      '<span class="g">' + g + "</span>" +
+      (label ? '<span class="ids">' + label + "</span>" : "") + "</div>");
+  }
+  el.innerHTML = h.join("");
+  var sel = ACTIVE_BOX >= 0 && MAIN ? boxCoordText(ACTIVE_BOX) : "";
+  cap.textContent = (capText || "部件清單") + (sel ? "　·　" + sel : "");
+}
+
 function renderSeq(st) {
   var el = $("seqChips"), cap = $("seqNote");
+  /* ★ 構字式（IDS）：部件清單＝**構字式的那幾塊** ✓（師父 2026-10-15 回報空的 ✗） */
+  if (st && st.mode === "ids") { renderBoxChips(MAIN ? MAIN.boxes : [], "部件清單"); return; }
+  /* ★ 字框：孫：部件清單＝**所有子孫的框** ✓（框與格子用同一個 data-box 互相亮起 ✓） */
+  if (BOXMODE === "deep" && MAIN) { renderBoxChips(deepBoxesOfMain(), "部件清單"); return; }
   var seq = $("seq").value.replace(/\s+/g, "");
   var chars = Array.from(seq);
   if (!chars.length) { el.innerHTML = ""; cap.textContent = ""; $("philNote").textContent = ""; return; }
@@ -1190,15 +1238,21 @@ function renderSeq(st) {
 /** 選定部件的座標文字（框的上方要顯示座標——使用者的要求）。
     用**原始 KAGE 框**（引擎實際用的那個矩形），`[x1,y1,x2,y2]`。 */
 function boxCoordText(order) {
-  if (!MAIN || !MAIN.boxes) return "";
-  for (var k = 0; k < MAIN.boxes.length; k++) {
-    var b = MAIN.boxes[k];
+  if (!MAIN) return "";
+  var deep = BOXMODE === "deep";
+  var list = deep ? deepBoxesOfMain() : MAIN.boxes;
+  if (!list) return "";
+  for (var k = 0; k < list.length; k++) {
+    var b = list[k];
     if (b.order !== order) continue;
-    var r = b.raw || b.tight;
-    if (!r) return "第 " + (order + 1) + " 個部件：IDS（沒有框）";
+    /* 孫框的 `raw`／`tight` 是**在它自己那一格裡的座標** ✗——
+       要顯示的是投影到**根座標**的 `abs` ✓（見 descendantBoxes ✓）。 */
+    var r = (deep ? b.abs : null) || b.raw || b.tight;
+    var head = "第 " + (order + 1) + " 個框" +
+      (deep && b.depth > 0 ? "（第 " + (b.depth + 1) + " 代）" : "");
+    if (!r) return head + "：IDS（沒有框）";
     var q = [r[0], r[1], r[2], r[3]].map(function (v) { return Math.round(v); });
-    return "第 " + (order + 1) + " 個部件（" + compCharOf(b.ref) + "）[" + q.join(",") + "]" +
-      (b.idsOnly ? "　IDS" : "");
+    return head + "（" + compCharOf(b.ref) + "）[" + q.join(",") + "]" + (b.idsOnly ? "　IDS" : "");
   }
   return "";
 }
@@ -1789,6 +1843,8 @@ function render() {
       setMain(naive.lib, naive.idx);
       $("big").innerHTML = mainSvg();
       try { renderBig(false); } catch (e1) { /* 框層失敗不影響大字 ✓ */ }
+    } else {
+      setMain(null);   /* 畫不出來就不要留著上一個字的部件清單 ✗ */
     }
     /* ★ 師父第 126 輪：**不要先畫出優化後的樣子** ✗——
        一來佔畫面 ✓，二來「**接受建議、字形突然變美**」才是客人驚嘆的那一刻 ✓✓。
@@ -1858,9 +1914,9 @@ function render() {
     note.textContent = "構字式（IDS）：" + idsToText(st.ids) +
       (naive ? "　※大字是 IDC 等比分配（未經墨跡對齊 ✓ 所以醜 ✓）" : "") +
       (recSeqs.length ? "　→ 按右邊的 🪄 試試系統建議的構形序 ✓" : "");
-    $("seqNote").textContent = "";
-    $("philNote").textContent = "";
-    $("seqChips").innerHTML = "";
+    /* ★ 部件清單：以前整段清空 ✗ → 現在畫出**構字式的那幾塊** ✓
+       （見 `renderSeq()` 的 ids 分支 ✓；師父 2026-10-15 回報空的 ✓）。 */
+    renderSeq(st);
     SEARCH = null; renderSearch(); uploadLinks(null);
     return;
   }
@@ -2099,12 +2155,28 @@ function bind() {
   $("seqChips").addEventListener("click", function (e) {
     var mini = e.target.closest ? e.target.closest(".mini.comp") : null;
     if (!mini) return;
-    if (mini.getAttribute("data-stuck")) return;
     var ch = mini.getAttribute("data-ch");
+    if (!ch) {
+      /* ★ 只看得到、不能換的格子（**構字式的塊**、**孫框**）——
+         點一下＝**選它** ✓：框與清單互相亮起 ✓（師父 2026-10-15 的要求 ✓）。 */
+      var bx = mini.getAttribute("data-box");
+      ACTIVE_BOX = bx !== null ? Number(bx) : -1;
+      try { renderBig(false); } catch (e0) { }
+      renderSeq(lastEval);
+      return;
+    }
+    if (mini.getAttribute("data-stuck")) return;
     var parent = mini.getAttribute("data-parent") || ch;
-    if (!ch) return;
     replaceWith(ch, parent);
   });
+
+  /* ★ 滑過大字的框 → **部件清單那一格也亮起來** ✓
+     （孫框才看得出對應的是哪一格 ✓；以前只有「點下去」才連動 ✗）。 */
+  $("big").addEventListener("mouseover", function (e) {
+    var r = e.target.closest ? e.target.closest(".cbox") : null;
+    hoverChip(r && r.hasAttribute("data-box") ? Number(r.getAttribute("data-box")) : -1);
+  });
+  $("big").addEventListener("mouseleave", function () { hoverChip(-1); });
 
   /* 庫存：點一列 ＝ 把整個序列帶進輸入區；「刪」只刪自存的 */
   $("stock").addEventListener("click", function (e) {
@@ -2144,6 +2216,7 @@ function bind() {
     try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
     applyBoxMode();
     renderBig(false);
+    renderSeq(lastEval);   /* ★ 部件清單要跟著換 ✓（孫模式＝所有子孫 ✓、緊模式＝可替換的部件 ✓） */
   });
 
   /* 點大字的框 ↔ 部件序列互相亮起 */
