@@ -245,6 +245,8 @@ const html = `<!DOCTYPE html>
 
   /* 授權宣告：頁尾一行小字，不搶版面 */
   .credits { margin:8px 2px 0; font-size:11px; line-height:1.7; color:var(--mut); text-align:center; }
+  .credits a { color:var(--acc); text-decoration:none; }
+  .credits a:hover { text-decoration:underline; }
 </style>
 </head>
 <body>
@@ -333,6 +335,8 @@ const html = `<!DOCTYPE html>
   <!-- 授權宣告（使用者指定的文字，一字不改） -->
   <footer class="credits">
     基於開源字庫 Glyphwiki+Kage，拼形序依據 中国发明专利 201610984608.1 号。微信：wxx68174671
+    <!-- ★ 師父 2026-10-15：加上**開發記錄**（同一個資料夾的 gouxingji.html ✓） -->
+    <span class="devlink">　·　<a href="gouxingji.html">開發記錄</a></span>
   </footer>
 
 </div>

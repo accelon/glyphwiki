@@ -399,6 +399,10 @@ if (!existsSync(EDGE)) {
       out.push("HrawImg=" + rawImgs + "," + rawLoaded);
       out.push("HseqText=" + document.querySelectorAll("#stock .seqtext, #stock .seqglyph").length);
       out.push("Hcredit=" + encodeURIComponent(document.querySelector(".credits").textContent.replace(/\s+/g, " ").trim()));
+      out.push("Hdevlink=" + encodeURIComponent((function () {
+        var a = document.querySelector(".credits a");
+        return a ? (a.getAttribute("href") + "|" + a.textContent) : "MISSING";
+      })()));
       rows[3].click();
       snap("H");
     },
@@ -1023,8 +1027,12 @@ if (!existsSync(EDGE)) {
     num("HseqText") === 0 ? ok("庫存按鈕不顯示拼形式本身（想知道就點一下）")
                           : bad(`還留著 ${num("HseqText")} 個拼形式文字`);
     const CREDIT = "基於開源字庫 Glyphwiki+Kage，拼形序依據 中国发明专利 201610984608.1 号。微信：wxx68174671";
-    txt("Hcredit") === CREDIT ? ok(`頁尾授權宣告：${txt("Hcredit").slice(0, 24)}…`)
+    txt("Hcredit").indexOf(CREDIT) === 0 ? ok(`頁尾授權宣告：${txt("Hcredit").slice(0, 24)}…`)
                               : bad(`頁尾授權不對：${txt("Hcredit")}`);
+    /* ★ 師父 2026-10-15：授權文字之後要有「開發記錄」連到同資料夾的 gouxingji.html ✓ */
+    txt("Hdevlink") === "gouxingji.html|開發記錄"
+      ? ok("頁尾有「開發記錄」→ gouxingji.html ✓")
+      : bad(`頁尾的「開發記錄」連結不對：${txt("Hdevlink")}`);
     const H = snap("H");
     /^峰/.test(H.seq) ? ok(`點第四組庫存 → 帶進輸入區（${H.seq.length} 個字，${H.mode}）`)
                       : bad(`庫存沒有帶進輸入區：${H.seq}`);
