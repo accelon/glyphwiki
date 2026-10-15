@@ -175,6 +175,51 @@ function deepBoxesOfMain() {
   return MAIN.deep;
 }
 
+/** 這個大字是**拼形拼出來的副本**嗎 ✓（不是原庫的字＝有東西被換過 ✓）。 */
+function isComposed() { return !!(MAIN && MAIN.lib && MAIN.lib !== LIB); }
+
+/** 「**最終組字用到的部件**」＝拼形結果裡**沒有再被改過的**那一層 ✓
+ *  （師父 2026-10-15：邏羅寶貝𩀨從䞃致招 只留 辶 隹 貝 𡩧 招 ✓）。
+ *  作法：從根往下走；**只有「在副本裡被改過」的節點才繼續往下** ✓——
+ *  沒有被改過的節點（＝庫裡現成的字形）就是一個**用到的部件** ✓，不再拆它的內部 ✓。
+ *  框一樣直接問**引擎** ✓（見 inkOfPathInRoot ✓）。 */
+function frontierBoxesOfMain() {
+  var out = [];
+  if (!MAIN) return out;
+  /* 中間部件＝序列 log 裡「被改過的字」✓（例 邏/寶/𩀨/䞃）——**即使引擎沒有改動它的筆劃** ✓
+     （例 䞃：引擎發現它本來就有「招」✓，但仍要往下看它的 貝／招 ✓）。 */
+  var mids = changedCharsOf(lastEval);
+  var isMid = function (ref) {
+    if (modInFork(ref)) return true;
+    var cp = codePointOf(MAIN.lib, ref);
+    return !!(cp && mids[String.fromCodePoint(cp)]);
+  };
+  var walk = function (g, path, depth) {
+    var gi = drawingIdx(MAIN.lib, g);
+    var slots = refSlotsOf(MAIN.lib, gi);
+    for (var k = 0; k < slots.length; k++) {
+      var s = slots[k];
+      var p = path.concat(s.strokeIx);
+      var box = null;
+      try {
+        var b = inkOfPathInRoot(MAIN.lib, MAIN.idx, p);
+        if (b) box = [b.x1, b.y1, b.x2, b.y2];
+      } catch (e) { }
+      var kids = [];
+      try { kids = refSlotsOf(MAIN.lib, drawingIdx(MAIN.lib, s.ref)); } catch (e2) { kids = []; }
+      if (isMid(s.ref) && kids.length) {
+        walk(s.ref, p, depth + 1);          /* 中間部件：往下走、**不列** ✓ */
+      } else {
+        out.push({ ref: s.ref, refName: s.refName, slotIx: k, strokeIx: s.strokeIx,
+                   raw: box, tight: box, idsOnly: false, order: out.length,
+                   abs: box, depth: depth });
+      }
+    }
+  };
+  walk(MAIN.idx, [], 0);
+  return out;
+}
+
 function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
 
 /* ============================ 相容異體 ============================ */
@@ -1238,8 +1283,10 @@ function renderSeq(st) {
   var el = $("seqChips"), cap = $("seqNote");
   /* ★ 構字式（IDS）：部件清單＝**構字式的那幾塊** ✓（師父 2026-10-15 回報空的 ✗） */
   if (st && st.mode === "ids") { renderBoxChips(MAIN ? MAIN.boxes : [], "部件清單"); return; }
-  /* ★ 字框：孫：部件清單＝**所有子孫的框** ✓（框與格子用同一個 data-box 互相亮起 ✓） */
-  if (BOXMODE === "deep" && MAIN) { renderBoxChips(deepBoxesOfMain(), "部件清單"); return; }
+  /* ★ 「中間部件」勾了：部件清單＝**所有子孫** ✓（框與格子用同一個 data-box 互相亮起 ✓） */
+  if (SHOW_MID && MAIN) { renderBoxChips(deepBoxesOfMain(), "部件清單"); return; }
+  /* ★ 拼形結果（fork）：部件清單＝**最終組字用到的部件** ✓（沒有再被改過的那一層 ✓） */
+  if (isComposed()) { renderBoxChips(frontierBoxesOfMain(), "部件清單"); return; }
   var seq = $("seq").value.replace(/\s+/g, "");
   var chars = Array.from(seq);
   if (!chars.length) { el.innerHTML = ""; cap.textContent = ""; $("philNote").textContent = ""; return; }
@@ -1315,8 +1362,8 @@ function renderSeq(st) {
     用**原始 KAGE 框**（引擎實際用的那個矩形），`[x1,y1,x2,y2]`。 */
 function boxCoordText(order) {
   if (!MAIN) return "";
-  var deep = BOXMODE === "deep";
-  var list = deep ? deepBoxesOfMain() : MAIN.boxes;
+  var deep = SHOW_MID;
+  var list = SHOW_MID ? deepBoxesOfMain() : (isComposed() ? frontierBoxesOfMain() : MAIN.boxes);
   if (!list) return "";
   for (var k = 0; k < list.length; k++) {
     var b = list[k];
@@ -1766,16 +1813,17 @@ function flashSeq(kind) {
   flashTimer = setTimeout(function () { el.classList.remove("flash-ok", "flash-warn"); }, 750);
 }
 
-/** 字框**三態**（最小框／**孫框**／不顯示）的按鈕標籤。
- *  ★ 師父 2026-10-15：「緊」與「原」合併 ✓——只看**能包住那個部件所有筆劃的最小框** ✓
- *  （引擎量的，見 `inkOfRefInParent`／`inkOfPathInRoot` ✓），不再提供原始 KAGE 框 ✗。 */
+/** 字框**兩態**（顯示／不顯示）的按鈕標籤 ✓。
+ *  ★ 師父 2026-10-15：「字框的設置可以簡化為顯示或不顯示 ✓」——
+ *  **孫框顯不顯示由「中間部件」決定** ✓（見 `SHOW_MID` ✓）。
+ *  框一律是**引擎量的最小框** ✓（`inkOfRefInParent`／`inkOfPathInRoot` ✓）。 */
 function applyBoxMode() {
   var b = $("boxMode");
   if (!b) return;
-  b.setAttribute("data-mode", BOXMODE);
-  b.textContent = BOXMODE === "tight" ? "字框：緊" : BOXMODE === "deep" ? "字框：孫" : "字框：無";
-  b.title = BOXMODE === "tight" ? "顯示最小框（能包住那個部件所有筆劃的框）"
-    : BOXMODE === "deep" ? "顯示所有子孫的框（一直到獨體部件）" : "不顯示字框";
+  var on = BOXMODE !== "none";
+  b.setAttribute("data-mode", on ? "show" : "none");
+  b.textContent = on ? "字框：顯" : "字框：隱";
+  b.title = on ? "顯示最小框（能包住那個部件所有筆劃的框）" : "不顯示字框";
 }
 
 function stockHtml() {
@@ -1838,10 +1886,12 @@ function stockCompose(seq) {
 }
 
 /* ============================ 主畫面 ============================ */
-var BOXMODE = "tight";
+var BOXMODE = "tight";                 /* "tight"＝顯示、"none"＝不顯示 ✓（兩態 ✓） */
+var SHOW_MID = false;                   /* ★ 顯示中間部件（含孫框）✓（師父 2026-10-15） */
 try {
   var savedBox = localStorage.getItem(LS_BOX);
-  if (savedBox === "none" || savedBox === "tight" || savedBox === "deep") BOXMODE = savedBox;   /* 舊的 "raw" 一律回緊框 ✓ */
+  if (savedBox === "none") BOXMODE = "none";
+  if (localStorage.getItem("pinxing.showmid") === "1") SHOW_MID = true;
 } catch (e) { }
 var ACTIVE_BOX = -1;
 
@@ -2118,10 +2168,14 @@ function render() {
 function renderBig(scroll) {
   if (!MAIN) return;
   try {
+    /* 框的來源：**中間部件**勾了＝所有子孫（孫框 ✓）；沒勾＝最終組字用到的部件 ✓ */
+    var bx = null, bmode = "tight";
+    if (SHOW_MID) { bx = deepBoxesOfMain(); bmode = "deep"; }
+    else if (isComposed()) { bx = frontierBoxesOfMain(); }
+    else { bx = MAIN.boxes; }
     $("big").innerHTML = BOXMODE === "none"
       ? mainSvg()
-      : bigSvgHtml(mainSvg(), BOXMODE === "deep" ? deepBoxesOfMain() : MAIN.boxes,
-                   { mode: BOXMODE, active: ACTIVE_BOX, lib: MAIN.lib });
+      : bigSvgHtml(mainSvg(), bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
   }
@@ -2293,14 +2347,25 @@ function bind() {
     renderSeq(lastEval);
   });
 
-  /* 字框：**三態**（緊 → 孫 → 無） */
+  /* 字框：**兩態**（顯示 ↔ 不顯示）✓ */
   $("boxMode").addEventListener("click", function () {
-    BOXMODE = BOXMODE === "tight" ? "deep" : BOXMODE === "deep" ? "none" : "tight";
+    BOXMODE = BOXMODE === "none" ? "tight" : "none";
     try { localStorage.setItem(LS_BOX, BOXMODE); } catch (e) { }
     applyBoxMode();
     renderBig(false);
-    renderSeq(lastEval);   /* ★ 部件清單要跟著換 ✓（孫模式＝所有子孫 ✓、緊模式＝可替換的部件 ✓） */
+    renderSeq(lastEval);   /* ★ 部件清單要跟著換 ✓ */
   });
+
+  /* ★ 「中間部件」勾選框 ✓：勾了＝連中間部件（孫框）一起顯示 ✓（師父 2026-10-15） */
+  if ($("showMid")) {
+    $("showMid").checked = SHOW_MID;
+    $("showMid").addEventListener("change", function () {
+      SHOW_MID = !!this.checked;
+      try { localStorage.setItem("pinxing.showmid", SHOW_MID ? "1" : "0"); } catch (e) { }
+      renderBig(false);
+      renderSeq(lastEval);
+    });
+  }
 
   /* 點大字的框 ↔ 部件序列互相亮起 */
   $("big").addEventListener("click", function (e) {

@@ -106,6 +106,10 @@ const html = `<!DOCTYPE html>
   .note.warn { color:#ffc46b; }
   .note.ok { color:#7fd18a; }
   .wrow { gap:6px; }
+  /* 「中間部件」勾選框（跟字框同一列 ✓） */
+  .chk { display:inline-flex; align-items:center; gap:4px; font-size:12px; color:var(--fg);
+         cursor:pointer; user-select:none; }
+  .chk input { width:14px; height:14px; margin:0; accent-color:var(--acc); cursor:pointer; }
   .wrow input[type=range] { flex:1; min-width:70px; }
   #boxMode { font-size:12px; padding:4px 8px; }
 
@@ -271,7 +275,10 @@ const html = `<!DOCTYPE html>
     </div>
     <!-- 5. 筆劃粗細 ＋ 6. 字框（三態）：跟輸入區同一張卡，調完立刻看得到大字變化 -->
     <div class="row wrow">
-      <button id="boxMode" data-mode="tight">字框：緊</button>
+      <button id="boxMode" data-mode="tight">字框：顯</button>
+      <!-- ★ 師父 2026-10-15：**顯示中間部件** ✓——
+           不勾＝只列／只框「最終組字用到的部件」✓；勾了＝連中間部件（孫框）一起 ✓。 -->
+      <label class="chk" title="勾了就連中間部件一起顯示"><input type="checkbox" id="showMid"><span>中間部件</span></label>
       <!-- ★ 師父第 124 輪：客人不會打 IDC ✓，所以要有按鈕把字**拆成構字式（IDS）** ✓ -->
       <button id="toIds" title="把這個字拆成構字式（IDS）——看看 IDS 的等比分配與構形序差多少 ✓">拆成 IDS</button>
       <span class="note">筆劃</span>

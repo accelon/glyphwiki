@@ -295,13 +295,17 @@ if (!existsSync(EDGE)) {
         " stOwner=" + encodeURIComponent(String((lastEval && lastEval.owner) || "")));
       out.push("Echips=" + JSON.stringify(Array.prototype.map.call(
         document.querySelectorAll("#seqChips .mini.comp"), function (m) { return m.getAttribute("data-ch"); })));
+      out.push("EchipsN=" + document.querySelectorAll("#seqChips .mini.comp").length);
+      out.push("EchipTips=" + encodeURIComponent(Array.prototype.map.call(
+        document.querySelectorAll("#seqChips .mini.comp"), function (m) { return (m.getAttribute("title") || "").slice(0, 12); }).join(" | ")));
     },
-    /* --- 大字的部件框：三態切換、點框連動 --- */
+    /* --- 大字的部件框：顯示／隱藏 ＋ 中間部件、點框連動 --- */
     function () {
       out.push("Fboxes=" + document.querySelectorAll("#big .cbox").length);
       out.push("FboxData=" + Array.prototype.map.call(
         document.querySelectorAll("#big .cbox"), function (b) { return b.getAttribute("data-box"); }).join(","));
       var b = document.getElementById("boxMode");
+      var mid = document.getElementById("showMid");
       try {
         function modeInfo(tag) {
           out.push(tag + "N=" + document.querySelectorAll("#big .cbox").length);
@@ -310,7 +314,14 @@ if (!existsSync(EDGE)) {
           out.push(tag + "M=" + b.getAttribute("data-mode"));
           out.push(tag + "P=" + document.querySelectorAll("#big svg path").length);
         }
-        b.click(); modeInfo("Fdeep");
+        out.push("FshowT=" + encodeURIComponent(b.textContent));
+        out.push("FshowM=" + b.getAttribute("data-mode"));
+        out.push("FshowN=" + document.querySelectorAll("#big .cbox").length);
+        out.push("FmidHas=" + (mid ? "yes" : "MISSING"));
+        if (mid) { mid.checked = true; mid.dispatchEvent(new Event("change")); }
+        modeInfo("Fdeep");
+        if (mid) { mid.checked = false; mid.dispatchEvent(new Event("change")); }
+        out.push("FmidOff=" + document.querySelectorAll("#big .cbox").length);
         b.click(); modeInfo("Fnone");
         b.click(); modeInfo("Fback");
         var box = document.querySelector("#big .cbox");
@@ -325,10 +336,12 @@ if (!existsSync(EDGE)) {
       var seqv = seqEl().value;
       setSeq("邏");   /* 用**真的有三層**的字 ✓（想 的畫法是手畫 木 ＋ 引用 目、心，孫框不會變多 ✓） */
       var b = document.getElementById("boxMode");
-      while (b.getAttribute("data-mode") !== "tight") b.click();   /* 先回到緊 ✓ */
+      var mid = document.getElementById("showMid");
+      while (b.getAttribute("data-mode") === "none") b.click();      /* 先讓字框是顯示的 ✓ */
+      if (mid && mid.checked) { mid.checked = false; mid.dispatchEvent(new Event("change")); }
       out.push("Dtight=" + document.querySelectorAll("#big .cbox").length);
       out.push("DtightSub=" + document.querySelectorAll("#big .cbox.sub").length);
-      b.click();                                                   /* 緊 → 孫 ✓ */
+      if (mid) { mid.checked = true; mid.dispatchEvent(new Event("change")); }   /* 勾中間部件 → 孫框 ✓ */
       out.push("Dmode=" + b.getAttribute("data-mode"));
       out.push("Dlabel=" + encodeURIComponent(b.textContent));
       out.push("Dall=" + document.querySelectorAll("#big .cbox").length);
@@ -347,8 +360,8 @@ if (!existsSync(EDGE)) {
       var dchip = document.querySelector("#seqChips .mini.comp[data-box]");
       if (dchip) dchip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
       out.push("DchipHover=" + document.querySelectorAll("#big .cbox.hover").length);
-      b.click(); b.click();                                        /* 孫 → 無 → 緊 ✓ */
-      out.push("Dback=" + b.getAttribute("data-mode"));
+      if (mid) { mid.checked = false; mid.dispatchEvent(new Event("change")); }   /* 取消中間部件 ✓ */
+      out.push("Dback=" + document.querySelectorAll("#big .cbox").length);
       setSeq(seqv);
     },
     /* --- 筆劃粗細：拉了要真的重畫 --- */
@@ -880,7 +893,7 @@ if (!existsSync(EDGE)) {
     txt("candHidden") === "true" ? ok("沒有候選時整段候選字收起來（版面緊湊）")
                                  : bad("候選區一直顯示著");
     txt("hasSlider") === "true" ? ok("有筆劃粗細控制") : bad("沒有筆劃粗細控制");
-    txt("boxMode") === "tight" && /字框/.test(txt("boxLabel"))
+    txt("boxMode") === "show" && /字框：顯/.test(txt("boxLabel"))
       ? ok(`字框的初始狀態：${txt("boxLabel")}（data-mode=${txt("boxMode")}）`)
       : bad(`框模式初始 ${txt("boxMode")}／${txt("boxLabel")}`);
 
@@ -922,38 +935,45 @@ if (!existsSync(EDGE)) {
     /邏 的 羅/.test(txt("Elog") || E.msg) ? ok(`⑤ 引擎的說明：${E.msg}`) : bad(`⑤ 沒有替換說明：${E.msg}`);
     /* 標題只寫「部件清單」（使用者的要求）；要知道**是哪個字**的清單就看部件格：
        這裡的題目是 邏羅寶，游標在最後 → 應該列 寶 的部件（𡩧 貝 缶 𡪓） */
-    txt("Eowner") === "寶" && /𡩧|貝|缶/.test(txt("Echips"))
-      ? ok(`⑤ 部件清單跟著光標走（owner=寶、部件 ${txt("Echips")}）`)
-      : bad(`⑤ 部件清單沒有跟著換：owner=${txt("Eowner")} chips=${txt("Echips")}`);
+    /* ★ 師父 2026-10-15：拼形結果的部件清單＝**最終組字用到的部件** ✓（不是 owner 的內部 ✗） */
+    num("EchipsN") === 2 && /U\+8FB6|U\+5BF6/.test(txt("EchipTips"))
+      ? ok(`⑤ 拼形結果的部件清單＝最終用到的部件（${num("EchipsN")} 格：辶 寶 ✓；owner 仍算得出 ${txt("Eowner")}）`)
+      : bad(`⑤ 拼形結果的部件清單不對：${num("EchipsN")} 格／${txt("EchipTips")}`);
     /點一下＝用它替換|部件清單/.test(E.cap) ? ok(`⑤ 部件清單的標題：${E.cap}`)
                                            : bad(`⑤ 標題不對：${E.cap}`);
-    /缶|貝|宀|珤/.test(txt("Echips"))
-      ? ok(`⑤ 寶 的部件序列：${txt("Echips")}`)
-      : bad(`⑤ 寶 的部件序列看不出東西：${txt("Echips")}`);
+    /* 拼形結果的部件清單是**看得到、不能換**的格子（沒有 data-ch ✓）——用提示文字驗 ✓ */
+    /U\+8FB6|U\+5BF6/.test(txt("EchipTips"))
+      ? ok(`⑤ 拼形結果的部件清單：${txt("EchipTips")}`)
+      : bad(`⑤ 拼形結果的部件清單看不出東西：${txt("EchipTips")}`);
 
-    // ---- 大字的框與三態切換
+    // ---- 大字的框：顯示／隱藏、中間部件、點框連動
     num("Fboxes") > 0 ? ok(`大字上畫了 ${num("Fboxes")} 個部件框（data-box=${txt("FboxData")}）`) : bad("大字上沒有框");
-    txt("FdeepM") === "deep" && num("FdeepN") > 0 && /字框：孫/.test(txt("FdeepT"))
-      ? ok(`字框切到「孫」：${txt("FdeepT")}（${num("FdeepN")} 個框 ✓）`)
-      : bad(`孫框那一段不對：${txt("FdeepM")}／${num("FdeepN")}／${txt("FdeepT")}`);
-    /* 「原」（原始 KAGE 框）已與「緊」合併 ✓（師父 2026-10-15）——不再測那一態 ✓ */
-    txt("FnoneM") === "none" && num("FnoneN") === 0 && num("FnoneP") > 0 && /字框：無/.test(txt("FnoneT"))
-      ? ok(`字框切到「不顯示」：沒有框但字形還在（${num("FnoneP")} 條筆畫路徑）`)
+    txt("FmidHas") === "yes" && txt("FshowM") === "show" && /字框：顯/.test(txt("FshowT"))
+      ? ok(`字框簡化成**兩態**（${txt("FshowT")} ✓）＋ 有「中間部件」勾選框 ✓`)
+      : bad(`字框鈕／勾選框不對：${txt("FshowM")}／${txt("FshowT")}／${txt("FmidHas")}`);
+    num("FdeepN") > num("FshowN") && num("FdeepS") > 0
+      ? ok(`勾「中間部件」→ 多出孫框（${num("FshowN")} → ${num("FdeepN")} 個框，其中孫框 ${num("FdeepS")} 個 ✓）`)
+      : bad(`中間部件沒有多出孫框：${num("FshowN")} → ${num("FdeepN")}（sub ${num("FdeepS")}）`);
+    num("FmidOff") === num("FshowN")
+      ? ok(`取消「中間部件」→ 回到只看最終組字用到的部件（${num("FmidOff")} 個框 ✓）`)
+      : bad(`取消中間部件後框數不對：${num("FmidOff")} vs ${num("FshowN")}`);
+    txt("FnoneM") === "none" && num("FnoneN") === 0 && num("FnoneP") > 0 && /字框：隱/.test(txt("FnoneT"))
+      ? ok(`字框切到「隱」：沒有框但字形還在（${num("FnoneP")} 條筆畫路徑）`)
       : bad(`「不顯示框」不對：${txt("FnoneM")}／框 ${num("FnoneN")}／路徑 ${num("FnoneP")}`);
-    txt("FbackM") === "tight" && num("FbackN") > 0
-      ? ok(`再按一下回到「最小框」（三態循環 ✓）`) : bad(`三態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
+    txt("FbackM") === "show" && num("FbackN") > 0
+      ? ok(`再按一下回到「顯」（兩態循環 ✓）`) : bad(`兩態循環壞了：${txt("FbackM")}／${num("FbackN")}`);
     num("FactiveBox") > 0 && num("FactiveChip") > 0
       ? ok(`點框 → 框與部件序列互相亮起（框 ${num("FactiveBox")} 個、清單 ${num("FactiveChip")} 格）`)
       : bad(`框／清單連動沒生效：框 ${num("FactiveBox")}、清單 ${num("FactiveChip")}` +
             `（clicked=${txt("Fclicked")} EXC=${txt("FEXC")}）`);
 
-    // ---- 「字框：孫」：所有子孫的框（直到獨體）
-    txt("Dmode") === "deep" && /字框：孫/.test(txt("Dlabel"))
-      ? ok(`字框切到「孫」：${txt("Dlabel")}（data-mode=${txt("Dmode")}）`)
-      : bad(`孫框模式不對：${txt("Dmode")}／${txt("Dlabel")}`);
+    // ---- 中間部件：孫框（所有子孫）
+    txt("Dmode") === "show" && /字框：顯/.test(txt("Dlabel"))
+      ? ok(`字框顯示中（${txt("Dlabel")}）；孫框由「中間部件」決定 ✓`)
+      : bad(`字框狀態不對：${txt("Dmode")}／${txt("Dlabel")}`);
     num("Dsub") > 0 && num("Dall") > num("Dtight") && num("DtightSub") === 0
-      ? ok(`「邏」的孫框：直接 ${num("Ddirect")} 個（＝緊框 ${num("Dtight")} 個）＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
-      : bad(`孫框數量不對：緊 ${num("Dtight")}（sub ${num("DtightSub")}）→ 孫 ${num("Dall")}（sub ${num("Dsub")}）`);
+      ? ok(`「邏」勾中間部件：最終 ${num("Dtight")} 個 ＋ 孫 ${num("Dsub")} 個＝${num("Dall")} 個框 ✓`)
+      : bad(`孫框數量不對：最終 ${num("Dtight")}（sub ${num("DtightSub")}）→ 孫 ${num("Dall")}（sub ${num("Dsub")}）`);
     num("DsubClickOn") === 1 && num("DsubChipOn") === 1
       ? ok("點孫框 → **框與部件清單互相亮起** ✓（師父 2026-10-15 的要求 ✓）")
       : bad(`點孫框的連動不對：框 ${num("DsubClickOn")} 個、清單 ${num("DsubChipOn")} 格`);
@@ -967,7 +987,9 @@ if (!existsSync(EDGE)) {
     /U\+[0-9A-F]{4,6}/.test(txt("Dtips")) && /第 \d+ 號異形/.test(txt("Dtips")) && !/個部件/.test(txt("Dtips"))
       ? ok(`框的提示＝「碼位 ＋ 第幾號異形」：${txt("Dtips").slice(0, 70)}… ✓`)
       : bad(`框的提示不對（還是舊的「第 n 個部件」？）：${txt("Dtips")}`);
-    txt("Dback") === "tight" ? ok("孫 → 無 → 緊：三態循環回到緊 ✓") : bad(`三態循環壞了：${txt("Dback")}`);
+    num("Dback") === num("Dtight")
+      ? ok(`取消「中間部件」→ 回到最終組字用到的部件（${num("Dback")} 個框 ✓）`)
+      : bad(`取消中間部件後框數不對：${num("Dback")} vs ${num("Dtight")}`);
 
     // ---- 粗細
     txt("Gchanged") === "true" ? ok(`拉粗細 → 真的重畫（${txt("label")}）`) : bad("拉粗細沒有重畫");
