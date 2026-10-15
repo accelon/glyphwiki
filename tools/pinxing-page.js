@@ -1131,6 +1131,16 @@ function hoverChip(box) {
   }
 }
 
+/** 反向連動：滑過部件清單的格子 → **大字上對應的那個框也亮** ✓
+ *  （師父 2026-10-15：「從大字可以連動部件清單，但**反向不行**」✓）。 */
+function hoverFrame(box) {
+  var rs = document.querySelectorAll("#big .cbox");
+  for (var i = 0; i < rs.length; i++) {
+    var on = box >= 0 && Number(rs[i].getAttribute("data-box")) === box;
+    if (on) rs[i].classList.add("hover"); else rs[i].classList.remove("hover");
+  }
+}
+
 /** 把一組框畫成「部件清單」的格子 ✓——**只看得到、不能換** ✓。
  *
  *  用於沒有「替換槽位」語意的兩處：
@@ -2177,6 +2187,13 @@ function bind() {
     hoverChip(r && r.hasAttribute("data-box") ? Number(r.getAttribute("data-box")) : -1);
   });
   $("big").addEventListener("mouseleave", function () { hoverChip(-1); });
+
+  /* ★ 反向也要通 ✓：滑過部件清單的格子 → 大字上對應的框也亮起來 ✓ */
+  $("seqChips").addEventListener("mouseover", function (e) {
+    var m = e.target.closest ? e.target.closest(".mini.comp") : null;
+    hoverFrame(m && m.hasAttribute("data-box") ? Number(m.getAttribute("data-box")) : -1);
+  });
+  $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); });
 
   /* 庫存：點一列 ＝ 把整個序列帶進輸入區；「刪」只刪自存的 */
   $("stock").addEventListener("click", function (e) {

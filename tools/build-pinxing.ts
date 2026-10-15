@@ -164,6 +164,10 @@ const html = `<!DOCTYPE html>
      要**自己再寫一份** ✓，否則滑過去／選中都不會亮（師父 2026-10-15 回報 ✓）。 */
   .cbox.sub:hover { stroke-dasharray:none; stroke-width:2; fill-opacity:.42; }
   .cbox.sub.on { stroke-dasharray:none; stroke-width:2.6; fill-opacity:.55; }
+  /* ★ 反向連動：滑過**部件清單的格子** → 大字的框也亮 ✓（見 pinxing-page.js 的 hoverFrame ✓）。
+     ⚠ 同樣要為「.sub」再寫一份，否則會被「.cbox.sub」蓋掉 ✗。 */
+  .cbox.hover { fill:color-mix(in srgb, var(--c) 24%, transparent); stroke-width:2.2; }
+  .cbox.sub.hover { stroke-dasharray:none; stroke-width:2; fill-opacity:.42; }
 
   /* ---- 3. 部件序列 ----
      樣式在上面（跟大字同一區塊），這裡只留兩頁共用 markup 會用到的部分。 */

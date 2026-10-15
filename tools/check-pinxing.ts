@@ -344,6 +344,10 @@ if (!existsSync(EDGE)) {
       if (dsub) dsub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       out.push("DsubClickOn=" + document.querySelectorAll("#big .cbox.on").length);
       out.push("DsubChipOn=" + document.querySelectorAll("#seqChips .mini.comp.on").length);
+      /* ★ 反向連動：滑過部件清單的格子 → 大字的框也亮 ✓（師父 2026-10-15：「反向不行」✓） */
+      var dchip = document.querySelector("#seqChips .mini.comp[data-box]");
+      if (dchip) dchip.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      out.push("DchipHover=" + document.querySelectorAll("#big .cbox.hover").length);
       b.click(); b.click(); b.click();                             /* 孫 → 原 → 無 → 緊 ✓ */
       out.push("Dback=" + b.getAttribute("data-mode"));
       setSeq(seqv);
@@ -956,6 +960,9 @@ if (!existsSync(EDGE)) {
     num("DsubClickOn") === 1 && num("DsubChipOn") === 1
       ? ok("點孫框 → **框與部件清單互相亮起** ✓（師父 2026-10-15 的要求 ✓）")
       : bad(`點孫框的連動不對：框 ${num("DsubClickOn")} 個、清單 ${num("DsubChipOn")} 格`);
+    num("DchipHover") === 1
+      ? ok("反向連動：滑過部件清單的格子 → 大字的框也亮 ✓（師父 2026-10-15）")
+      : bad(`反向連動不對：亮的框 ${num("DchipHover")} 個`);
     num("Dchips") === num("Dall")
       ? ok(`孫模式的部件清單＝所有子孫（${num("Dchips")} 格＝框數 ${num("Dall")} ✓）`)
       : bad(`孫模式的部件清單格數不對：清單 ${num("Dchips")}／框 ${num("Dall")}`);
