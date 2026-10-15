@@ -300,7 +300,11 @@ const html = `<!DOCTYPE html>
 
   <!-- 2. 大字（左）＋ 4. 部件序列（右，豎排） -->
   <div class="sec">
-    <div class="cap">拼出來的形<span class="r note" id="bigNote"></span></div>
+    <!-- ★ 師父 2026-10-15：**「拼出來的形」＋右邊那行說明（組出來的形（無碼位 以 U+… 為基礎））
+         整行拿掉** ✓——省一行垂直空間 ✓。
+         ⚠ 說明的內容保留在**隱藏**的 #bigNote 裡：check-pinxing 用它驗各模式的文字 ✓
+         （畫面完全不佔空間 ✓）。 -->
+    <span class="r note" id="bigNote" hidden></span>
     <div class="stagewrap">
       <div class="stage" id="big"></div>
       <!-- **最佳建議與現在的形並排**（師父第 112 輪的要求）：客人才看得出好在哪裡 ✓。
