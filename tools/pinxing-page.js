@@ -328,12 +328,14 @@ function partSvgOfMain(order) {
   }
   var svg = null;
   if (path && path.length) {
-    try { svg = svgOfPathInRoot(MAIN.lib, MAIN.idx, path); } catch (e) { svg = null; }
+    /* ★ 筆劃粗細要跟主字形同一組 ✓（`newKage()` ✓）：不傳的話高亮用引擎預設值 ✗，
+       客人把筆劃拉細之後，塗色的那一塊會**比字形本身粗** ✗（師父：「略大略粗，沒有必要」✓）。 */
+    try { svg = svgOfPathInRoot(MAIN.lib, MAIN.idx, path, newKage); } catch (e) { svg = null; }
   }
   /* ★ 師父 2026-10-16：**手畫筆劃的部件**（例「寶缶支」的 王）沒有引用路徑 ✗——
      改畫**那一格自己的筆劃** ✓，這樣它也會跟著框一起變色 ✓。 */
   if (!svg && b.ownPath && b.ownPath.length) {
-    try { svg = svgOfOwnInRoot(MAIN.lib, MAIN.idx, b.ownPath); } catch (e2) { svg = null; }
+    try { svg = svgOfOwnInRoot(MAIN.lib, MAIN.idx, b.ownPath, newKage); } catch (e2) { svg = null; }
   }
   if (!svg) return "";
   var inner = svg.replace(/^[\s\S]*?<svg\b[^>]*>/, "").replace(/<\/svg>\s*$/, "");

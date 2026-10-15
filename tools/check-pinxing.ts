@@ -1300,7 +1300,24 @@ if (!existsSync(EDGE)) {
           n++;
           if ((A[k * 4 + 3] || 0) < 128) miss++;
         }
-        window.__PIX__ = n + "/" + miss + "/" + (n ? Math.round(1000 * miss / n) / 10 : -1);
+        var n100 = n;
+        /* ★ 2026-10-16（師父）：「筆劃塗色時，會變得略大略粗，沒有必要」✗——
+           高亮是共用模塊自己 new Kage() 畫的 ✗，**沒有吃到「筆劃粗細」**✗：
+           實測 筆劃 40% 時主字形 10,531→4,153 點、高亮卻不動（1,598 ✗）。
+           所以這裡再量一次 40% ✓——高亮的面積必須跟著縮 ✓。 */
+        var w2 = document.getElementById("wscale");
+        w2.value = "40";
+        w2.dispatchEvent(new Event("input"));
+        var hl2 = null;
+        try { hl2 = svgOfPathInRoot(L, MAIN.idx, tu.path, newKage); } catch (e2) { }
+        raster(hl2).then(function (H2) {
+          var m2 = 0;
+          for (var q = 0; q < 200 * 200; q++) if ((H2[q * 4 + 3] || 0) >= 128) m2++;
+          window.__PIX__ = n + "/" + miss + "/" + (n ? Math.round(1000 * miss / n) / 10 : -1) +
+            "/" + n100 + "/" + m2;
+          w2.value = "100";
+          w2.dispatchEvent(new Event("input"));
+        });
       });
     },
     /* --- ★ 2026-10-16：**留下一組已知的狀態**，下一次開頁要自己還原 ✓
@@ -1361,15 +1378,22 @@ if (!existsSync(EDGE)) {
      同一個目錄**連續跑兩次**＝「客人關掉再打開」✓（見本段後面的第二次實跑 ✓）。 */
   const profile = mkdtempSync(join(tmpdir(), "pinxing-check-"));
 
-  const proc = Bun.spawnSync([
-    EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + profile,
-    "--virtual-time-budget=240000",   /* ⚠ 步驟多了會撞到預算 ✓（撞到＝探針沒有回報、整段驗收空轉 ✓） */
-    "--window-size=460,1500", "--screenshot=" + shotPath,
-    "--dump-dom", "file:///" + diagPath.replace(/\\/g, "/"),
-  ], { stdout: "pipe", stderr: "ignore" });
-  const dom = new TextDecoder().decode(proc.stdout);
-  const m = /<title>PROBE\|([^<]*)<\/title>/.exec(dom);
-  if (!m) bad("瀏覽器沒有回報結果（title 找不到 PROBE）");
+  let dom = "", m: RegExpExecArray | null = null;
+  /* ⚠ 偶爾會「整支探針沒有回報」（title 找不到 PROBE ✓）——實測大約每十次一次 ✗，
+     而且**同一個檔案再跑一次就好** ✓（不是頁面的問題 ✓）。所以這裡重試一次 ✓；
+     真的壞掉的話兩次都不會有回報 ✓，不會蓋掉失敗 ✓。 */
+  for (let attempt = 0; attempt < 2 && !m; attempt++) {
+    const proc = Bun.spawnSync([
+      EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + profile,
+      "--virtual-time-budget=240000",   /* ⚠ 步驟多了會撞到預算 ✓（撞到＝探針沒有回報、整段驗收空轉 ✓） */
+      "--window-size=460,1500", "--screenshot=" + shotPath,
+      "--dump-dom", "file:///" + diagPath.replace(/\\/g, "/"),
+    ], { stdout: "pipe", stderr: "ignore" });
+    dom = new TextDecoder().decode(proc.stdout);
+    m = /<title>PROBE\|([^<]*)<\/title>/.exec(dom);
+    if (!m && attempt === 0) console.log("  （探針沒回報，重試一次 ✓）");
+  }
+  if (!m) bad("瀏覽器沒有回報結果（title 找不到 PROBE；已重試一次）");
   else {
     const r = m[1]!;
     const num = (k: string) => Number(new RegExp("(?:^| )" + k + "=(-?[\\d.]+)").exec(r)?.[1] ?? "NaN");
@@ -1670,9 +1694,15 @@ if (!existsSync(EDGE)) {
     {
       const f = txt("Ipix").split("/");
       const n = Number(f[0]), miss = Number(f[1]), pct = Number(f[2]);
+      const n100 = Number(f[3]), n40 = Number(f[4]);
       n > 1000 && miss >= 0 && pct >= 0 && pct <= 8
         ? ok(`高亮（土）畫了 ${n} 點，只有 ${pct}% 落在字形外面 ✓（那幾點就是抗鋸齒邊緣 ✓）`)
         : bad(`高亮的墨跑到字形外面了：${txt("Ipix")}（修好前是 49.7% ✗）`);
+      /* ★ 2026-10-16（師父）：「筆劃塗色時，會變得略大略粗，沒有必要」✗——
+         高亮必須**跟著筆劃粗細變**（修好前它固定用引擎預設值 ✗）。 */
+      n100 > 1000 && n40 > 200 && n40 < n100 * 0.7
+        ? ok(`高亮跟著「筆劃粗細」變（100%＝${n100} 點 → 40%＝${n40} 點 ✓）——不會再比字形本身粗 ✓`)
+        : bad(`高亮沒有跟著筆劃粗細變：100%＝${n100}、40%＝${n40}（修好前 40% 是 1598＝沒變 ✗）`);
     }
     /* ★ 2026-10-16（師父）：「hover 過去時，**其他的白色筆劃都不見了**」✗——
        滑過某一塊時**只把那一塊染色** ✓，其他筆劃照舊看得見 ✓

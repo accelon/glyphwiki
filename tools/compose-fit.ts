@@ -93,10 +93,10 @@ export function inkIn(L: Lib, rootIdx: number): Box {
 }
 
 /** 把父字的某個引用單獨放進引擎，量它在父座標系中的墨跡（＝該部件佔的區域） */
-export function inkOfRefInParent(L: Lib, parentIdx: number, strokeIx: number): Box {
+export function inkOfRefInParent(L: Lib, parentIdx: number, strokeIx: number, kageOf?: () => any): Box {
   ensureEngine();
   const one = L.glyphs[parentIdx]!.strokes[strokeIx]!;
-  const kage = new Kage();
+  const kage = kageOf ? kageOf() : new Kage();
   kage.kBuhin.push(
     keyOfIdx(L, parentIdx),
     "99:0:0:" + one.box!.join(":") + ":" + keyOfIdx(L, one.ref!) + ":" + one.stretch!.join(":"),
@@ -125,7 +125,7 @@ export function inkOfRefInParent(L: Lib, parentIdx: number, strokeIx: number): B
  *  這樣「框、`stretch`、巢狀的縮放與置中」**全部照引擎的規矩**算 ✓，
  *  不必自己猜映射 ✗（先前用「等比縮放後置中」的模型，遇到 `stretch` 就對不上 ✗，
  *  症狀是孫框比它的父框還高／還寬 ✗，師父抓到 ✓）。 */
-export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | null {
+export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[], kageOf?: () => any): Box | null {
   ensureEngine();
   if (!path.length) return null;
   /* 沿著 path 走一遍，記下每一層的字形（要先穿過純指標的包裝字 ✓）與那一筆引用 ✓ */
@@ -146,7 +146,7 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
     g = drawingIdx(L, nx);
   }
   const target = g;
-  const kage = new Kage();
+  const kage = kageOf ? kageOf() : new Kage();
   const seen = new Set<number>();
   const stack = [target];
   while (stack.length) {
@@ -177,7 +177,7 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
  *  那個 王 沒有引用、不能用 inkOfPathInRoot 量，所以另外量它 ✓。 */
 /** 路徑上那一格**自己手畫的筆劃**（不含引用）的圖形（根座標 ✓）——
  *  用來把「留下來的那一件」（例「寶缶支」的 王）**染成框色** ✓（它沒有引用路徑 ✗）。 */
-export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): string | null {
+export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[], kageOf?: () => any): string | null {
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
@@ -201,7 +201,7 @@ export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): string 
   const own = node.strokes.filter((s: any) => s.kind !== 99);
   if (!own.length) return null;
   const fake: any = { strokes: own };
-  const kage = new Kage();
+  const kage = kageOf ? kageOf() : new Kage();
   kage.kBuhin.push("__own", toKageData(fake, L));
   let childName = "__own";
   for (let i = levels.length - 1; i >= 0; i--) {
@@ -216,7 +216,7 @@ export function svgOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): string 
   return normalizeSvg(polys.generateSVG(true));
 }
 
-export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | null {
+export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[], kageOf?: () => any): Box | null {
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
@@ -240,7 +240,7 @@ export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | n
   const own = node.strokes.filter((s: any) => s.kind !== 99);
   if (!own.length) return null;
   const fake: any = { strokes: own };
-  const kage = new Kage();
+  const kage = kageOf ? kageOf() : new Kage();
   kage.kBuhin.push("__own", toKageData(fake, L));
   let childName = "__own";
   for (let i = levels.length - 1; i >= 0; i--) {
@@ -259,7 +259,7 @@ export function inkOfOwnInRoot(L: Lib, rootIdx: number, path: number[]): Box | n
  *  （師父 2026-10-15：選框時，屬於它的筆劃要**和框同色**、不要白色）。
  *  作法與 inkOfPathInRoot() 完全相同（把整條鏈做成合成字形再交給引擎），
  *  只是回傳**圖形**而不是框。找不到那條路徑就回 null。 */
-export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[]): string | null {
+export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[], kageOf?: () => any): string | null {
   ensureEngine();
   if (!path.length) return null;
   const levels: { s: any }[] = [];
@@ -279,7 +279,7 @@ export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[]): string
     g = drawingIdx(L, nx);
   }
   const target = g;
-  const kage = new Kage();
+  const kage = kageOf ? kageOf() : new Kage();
   const seen = new Set<number>();
   const stack = [target];
   while (stack.length) {

@@ -215,7 +215,8 @@ function inkOfGlyph(i) {
 /** 引擎量的「某個引用在**父座標**的墨跡框」→ 陣列 ✓（引擎回的是 {x1,y1,x2,y2} 物件 ✓）。 */
 function inkOfRefBox(L, parentIdx, strokeIx) {
   try {
-    var b = inkOfRefInParent(L, parentIdx, strokeIx);
+    /* ★ 傳「newKage」讓量測和主字形同一組筆寬 ✓（見 pinxing-page.js 的 partSvgOfMain ✓） */
+    var b = inkOfRefInParent(L, parentIdx, strokeIx, newKage);
     return b ? [b.x1, b.y1, b.x2, b.y2] : null;
   } catch (e) { return null; }
 }
