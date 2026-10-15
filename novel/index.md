@@ -578,7 +578,7 @@
 | 章序、目錄標籤、一句話 | 本檔「電子書篇章順序」表 |
 | 節數、字數、閱讀分鐘 | 生成時由 `novel/*.md` 實測 |
 | 書名、主題、字級、版式、功能 | `novel/ebook.md` |
-| 產物 | `novel/gouxingji.html`（單一網頁，離線可讀；檔名用拼音，全 ASCII） |
+| 產物 | `out/gouxingji.html`（單一網頁，離線可讀；檔名拼音全 ASCII，與 `out/pinxing.html` 同放。`out/` 不入版控） |
 
 ```
 bun run tools/gen-novel-html.ts

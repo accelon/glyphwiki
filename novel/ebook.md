@@ -6,9 +6,9 @@
 ## 生成
 
 ```
-bun run tools/gen-novel-html.ts            # 依本檔設定生成
-bun run tools/gen-novel-html.ts --check    # 只檢查，不寫檔
-bun run tools/gen-novel-html.ts --out novel/x.html
+bun run tools/gen-novel-html.ts                  # 依本檔設定生成
+bun run tools/gen-novel-html.ts --check          # 只檢查，不寫檔
+bun run tools/gen-novel-html.ts --out out/x.html # 換輸出檔名
 ```
 
 | 輸入 | 角色 |
@@ -16,7 +16,10 @@ bun run tools/gen-novel-html.ts --out novel/x.html
 | `novel/index.md` | 章序來源：取「電子書篇章順序」表（篇名／檔案／一句話） |
 | `novel/ebook.md` | 本檔：書名、作者、主題、字級、功能開關 |
 | `novel/*.md` | 正文各篇 |
-| `novel/gouxingji.html` | 產物：單一網頁，離線可讀（檔名用拼音，全 ASCII） |
+| `out/gouxingji.html` | 產物：單一網頁，離線可讀（檔名拼音全 ASCII，與 `out/pinxing.html` 同放） |
+
+> `out/` 在 `.gitignore` 裡，產物**不入版控**；原始資料與生成程序才有進版控。
+> 要出書就重跑生成程序，或把 `out/gouxingji.html` 單獨複製出去。
 
 > 章序**不在本檔重複**。要調整順序、標題、目錄副標，改 `index.md` 那張表就好。
 > 本檔只管「看起來怎樣、有什麼功能」。
@@ -28,7 +31,7 @@ bun run tools/gen-novel-html.ts --out novel/x.html
 | 書名 | 構形記 |
 | 副題 | 煉丹、試丹、問診、裁衣、品丹、鑑丹、托付 |
 | 作者 | — |
-| 輸出檔 | novel/gouxingji.html |
+| 輸出檔 | out/gouxingji.html |
 | 頁面標題 | 《構形記》 |
 | 首頁題記 | 那些字本來就在山上。 |
 | 目錄標題 | 目次 |

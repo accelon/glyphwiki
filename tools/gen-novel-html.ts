@@ -7,18 +7,18 @@
  *   novel/ebook.md   樣式與功能設定（書名、主題、字級、版式、功能開關）
  *   novel/*.md       正文各篇
  * 輸出
- *   novel/gouxingji.html  單一網頁、無外部資源、手機優先（檔名用拼音，全 ASCII）
+ *   out/gouxingji.html  單一網頁、無外部資源、手機優先（檔名拼音全 ASCII；與 out/pinxing.html 同放）
  *
  * 用法
  *   bun run tools/gen-novel-html.ts
  *   bun run tools/gen-novel-html.ts --check         只報告，不寫檔
- *   bun run tools/gen-novel-html.ts --out novel/x.html
+ *   bun run tools/gen-novel-html.ts --out out/x.html
  *
  * 版面：單欄。頂欄固定，左為目次鈕，中為書名／篇次，右為字級與設定。
  * 目次只列「篇」。正文一篇一頁，換篇即可。
  */
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname, basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -405,7 +405,7 @@ function parseEbook(md: string): Config {
     title: get("書名", "未命名"),
     subtitle: get("副題"),
     author: get("作者") === "—" ? "" : get("作者"),
-    out: get("輸出檔", "novel/gouxingji.html"),
+    out: get("輸出檔", "out/gouxingji.html"),
     pageTitle: get("頁面標題", `《${get("書名", "未命名")}》`),
     epigraph: get("首頁題記"),
     tocTitle: get("目錄標題", "目次"),
@@ -1149,6 +1149,7 @@ function main(): void {
     console.log("\n（--check：未寫檔）");
     return;
   }
+  mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, html, "utf8");
   console.log("\n✓ 已寫入 " + out);
 
