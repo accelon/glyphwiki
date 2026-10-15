@@ -112,11 +112,15 @@ const html = `<!DOCTYPE html>
   .stagewrap { display:flex; flex-wrap:wrap; justify-content:flex-start; align-items:flex-start; gap:8px; }
   .stage { position:relative; flex:none; width:200px; height:200px; color:var(--fg);
            border:1px dashed var(--line); border-radius:4px; }
-  .side { flex:0 1 auto; min-width:56px; max-width:100%; display:flex; flex-direction:column; gap:4px; align-items:flex-end; text-align:right; }
+  /* ★ 師父 2026-10-15：**部件清單要緊湊**——原本是**豎排單欄** ✗，
+     部件一多就變成一條長柱、右邊卻空著一大片 ✗。
+     改成**吃滿右邊剩下的寬度、自動換行** ✓（左起排、靠大字那一側開始排 ✓）。 */
+  .side { flex:1 1 56px; min-width:56px; max-width:100%; display:flex; flex-direction:column; gap:4px; align-items:flex-start; text-align:left; }
   .sidecap { font-size:11px; color:var(--mut); line-height:1.4; }
-  /* 部件清單：**豎排**的方形按鈕（KAGE 字形），靠右對齊。
-     手機太窄時（<=430px）縮小大字與按鈕、並允許換行，避免壓到大字。 */
-  .chips { display:flex; flex-direction:column; gap:4px; align-items:flex-end; }
+  /* 部件清單：方形按鈕（KAGE 字形）**自動換行、填滿可用寬度** ✓（緊湊 ✓）。
+     手機太窄時（<=430px）再縮小大字與按鈕，避免壓到大字。 */
+  .chips { display:flex; flex-wrap:wrap; gap:4px; align-content:flex-start;
+           justify-content:flex-start; width:100%; }
   .mini.comp { position:relative; display:flex; align-items:center; justify-content:center;
                width:44px; height:44px; flex:none; border:1px solid var(--line); border-radius:6px;
                background:var(--card); color:var(--fg); cursor:pointer; }
@@ -138,11 +142,10 @@ const html = `<!DOCTYPE html>
   .mini.comp .ids { position:absolute; right:1px; bottom:0; font-size:8px; color:var(--mut);
                     font-family:ui-monospace,monospace; }
   @media (max-width:430px) {
-    /* 手機過窄：大字縮到 150、按鈕縮到 38，並讓部件清單可以兩欄換行，不與大字重疊 */
+    /* 手機過窄：大字縮到 150、按鈕縮到 38（清單本來就會自動換行 ✓），不與大字重疊 */
     .stage, .stage .boxlayer, .stage > svg { width:150px; height:150px; }
     .mini.comp { width:38px; height:38px; }
     .mini.comp .g { width:31px; height:31px; }
-    .chips { flex-direction:row; flex-wrap:wrap; justify-content:flex-end; max-width:96px; }
   }
   .stage > svg { position:absolute; left:0; top:0; width:200px; height:200px; display:block; }
   .stage .ph { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
