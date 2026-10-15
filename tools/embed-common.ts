@@ -38,6 +38,9 @@ export const ENGINE_FILES = [
  *   free-compose    引用樹（refSlotsOf）、構形序列、位置搜尋
  *   component-boxes 部件框（componentBoxes／inkBoundsOfPolys）——兩頁都要
  *   stroke-overlap  跨部件距離（編輯器與 pinxing 用）
+ *   ids-glyph       **從 IDS 產生字形**（`glyph-by-ids.md` 的主模塊 ✓）——
+ *                   框按算子等比分配 ✓、巢狀自動正確 ✓、**保證框不重疊** ✓
+ *                   （＝筆劃不交錯 ✓）。放在 `free-compose` 前面沒關係 ✓（它是獨立的 ✓）。
  */
 export const MODULES = [
   "tools/lib-format.ts",
@@ -45,6 +48,7 @@ export const MODULES = [
   "tools/box-dictionary.ts",
   "tools/compose-fit.ts",
   "tools/free-compose.ts",
+  "tools/ids-glyph.ts",
   "tools/component-boxes.ts",
   "tools/stroke-overlap.ts",
   /* 點陣（「墨有沒有搞成一塊」的判準要用 ✓）＋ 判準本身

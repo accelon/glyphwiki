@@ -176,7 +176,61 @@ export function rawClusters(strokes: { kind: number; points: number[] }[], need:
   return axisBoxes(aspectX) ?? axisBoxes(!aspectX);
 }
 
-export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure): CompBox[] {
+export function componentBoxes(L: Library, gi: number, inkOf?: InkMeasure, opt?: { deep?: boolean }): CompBox[] {
+  /* ★★ 第 138 輪（師父的回報 ✓）：**深層框**。
+     症狀：同一個字，**IDS 版看得到 4 個子框、構形序版只有 2 個** ✗。
+     原因不是誰畫錯 ✗——`refSlotsOf()` 只回**根的引用槽** ✓，而構形序的根常常只有 2 個分量 ✓
+     （`好學孔孟` 的根是 2 個 ✓），分量自己還是合字時就只算一格 ✗；
+      IDS 版是把 4 個**葉**各畫一格 ✓。兩邊的「格」定義不同 ✗（一個是引用、一個是葉 ✗）。
+     師父要比的是同一個東西 ✓ → `opt.deep` 讓框**遞迴到真正在畫的葉** ✓，
+     一路把子框經引用框**投影**回父座標 ✓。
+     ⚠ 預設**不遞迴** ✓（`glyph-browser` 與既有斷言的行為完全不變 ✓）。 */
+  const deep = !!(opt && opt.deep);
+  const bases: { box: Box | null; out: CompBox[] }[] = [];
+  collectBoxes(L, gi, inkOf, deep, null, bases, 0);
+  const out: CompBox[] = [];
+  for (let b = 0; b < bases.length; b++) {
+    const parent = bases[b]!.box;
+    for (const e of bases[b]!.out) {
+      out.push({
+        ref: e.ref, refName: e.refName, slotIx: e.slotIx,
+        raw: e.raw, tight: e.tight, idsOnly: e.idsOnly, order: out.length,
+        ...(parent ? { parentBox: parent } : {}),
+      });
+    }
+  }
+  return out;
+}
+
+/** 遞迴收集 ✓（`deep=false` 時與舊版**完全一樣** ✓：一次呼叫、不投影 ✓）。 */
+function collectBoxes(L: Library, gi: number, inkOf: InkMeasure | undefined, deep: boolean,
+                      parentBox: Box | null, acc: { box: Box | null; out: CompBox[] }[], depth: number): void {
+  const boxes = componentBoxesShallow(L, gi, inkOf);
+  if (!deep || depth > 12) { acc.push({ box: parentBox, out: boxes }); return; }
+  for (const e of boxes) {
+    /* 這一格自己還是「合字」嗎 ✓——是的話就往下一層 ✓（框投影回**根**座標 ✓）。
+       ★ 停止條件（第 138 輪 ✓）：**它自己有沒有手畫的筆劃** ✓——
+         有筆劃＝它自己就在畫 ✓（就是一個葉 ✓，不要再往下拆 ✗，不然會多出一堆重複的框 ✗）；
+         沒有筆劃、只有引用＝**包裝** ✓ → 往下 ✓（這正是舊版只回一格的那個坑 ✓）。 */
+    const refIx = e.ref !== undefined ? e.ref : -1;
+    const hasOwnStrokes = refIx >= 0 &&
+      L.glyphs[refIx]!.strokes.some((s) => s.kind !== 99 && s.kind !== 0);
+    const innerBoxes = (refIx >= 0 && !hasOwnStrokes) ? componentBoxesShallow(L, refIx, inkOf) : [];
+    const canGoDeeper = innerBoxes.length > 1 && e.raw !== null;
+    if (!canGoDeeper) { acc.push({ box: parentBox, out: [e] }); continue; }
+    /* 子框在**這一格的座標** ✓（把 `e.raw` 當成這一格自己的畫布 ✓，再投影回上一層 ✓） */
+    const childAcc: { box: Box | null; out: CompBox[] }[] = [];
+    collectBoxes(L, refIx, inkOf, true, e.raw, childAcc, depth + 1);
+    for (const c of childAcc) {
+      const abs = projectBox(c.box ?? e.raw, e.raw);       /* 這一格的框 → 上一層座標 ✓ */
+      const finalBox = parentBox ? projectBox(abs, parentBox) : abs;   /* → 再往上一層 ✓ */
+      acc.push({ box: finalBox, out: c.out.map((x) => ({ ...x, slotIx: e.slotIx })) });
+    }
+  }
+}
+
+/** 舊版的**淺層**框（一次 `refSlotsOf` ✓）——`componentBoxes()` 的非遞迴路徑就是它 ✓。 */
+function componentBoxesShallow(L: Library, gi: number, inkOf?: InkMeasure): CompBox[] {
   /* ⚠ **先往下走到「真正在畫」的字形**：字庫裡很多碼位的字形只是一個**包裝**
      （一筆引用指向 `-j`／`-g` 那個真的畫出來的異體，例 `藵` #49163 → #49164）。
      不往下走的話 `refSlotsOf()` 只會回**一格**（＝包裝自己、框是滿格），
