@@ -290,7 +290,7 @@ function cardHtml(idx, k) {
      按下去中間的格區直接就是那份清單，而且還能搜、能捲、能再疊卡。 */
   parts.push('<div class="big"' + (cp ? ' title="點一下 → 以「' + String.fromCodePoint(cp) +
     '」為部件搜尋"' : "") + '><div class="g">' + bigSvgHtml(glyphSvg(idx), boxesOfGlyph(idx),
-      { mode: "tight", active: -1 }) + "</div>" +
+      { mode: "tight", active: -1, lib: LIB }) + "</div>" +
     '<div class="u">' + (cp ? hex(cp) : "（無碼位）") + "</div></div>");
 
   /* 異體：只有一個就不必顯示（沒有「不同字形」可言） */

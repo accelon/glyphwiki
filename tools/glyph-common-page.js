@@ -138,17 +138,35 @@ function boxOverlaySvg(boxes, opt) {
  * （`<g>` 不是 HTML 元素，`innerHTML` 設成它會得到空的），
  * 所以畫面端一律用下面的 `bigSvgHtml()`，不要自己接 `boxOverlaySvg()` 的字串。
  */
+/** 部件框的提示文字：**Unicode 碼位 ＋ 第幾號異形** ✓（師父第 163 輪的需求 ✓）。
+ *
+ *  「第 N 號」＝它在 `familyMembers()` 家族列表裡的序號 ✓
+ *  （與字集瀏覽頁「異體」清單的編號同一個慣例 ✓）；
+ *  沒有碼位的純部件誠實寫「無碼位」✓（不要假裝有碼位 ✗）。
+ *
+ *  ⚠ 要傳**這一批框所屬的那個庫** ✗（拼形的結果是 fork 出來的副本 ✓）——
+ *    所以由呼叫端用 `opt.lib` 傳進來 ✓，不要在這裡偷用全域 `LIB` ✗。 */
+function boxTipText(L, b) {
+  var cp = (L && b.ref !== undefined) ? codePointOf(L, b.ref) : 0;
+  if (!cp) return "無碼位";
+  var fam = familyMembers(L, cp);
+  var k = fam.indexOf(b.ref);
+  return "U+" + cp.toString(16).toUpperCase() + (k >= 0 ? "　第 " + (k + 1) + " 號異形" : "");
+}
+
 function boxRectsSvg(boxes, opt) {
   if (!boxes || !boxes.length) return "";
   var mode = opt && opt.mode === "raw" ? "raw" : opt && opt.mode === "deep" ? "deep" : "tight";
   var active = opt && opt.active !== undefined ? opt.active : -1;
+  var L = opt && opt.lib ? opt.lib : null;
   var items = [];
   for (var k = 0; k < boxes.length; k++) {
     var b = boxes[k];
     /* 「孫」模式用**投影到根座標的絕對框**（`abs` ✓，來自 descendantBoxes ✓） */
     var r = mode === "raw" ? b.raw : mode === "deep" ? (b.abs || b.tight) : b.tight;
     if (!r) continue;                    /* IDS-only：沒有框可畫 */
-    items.push({ order: b.order, depth: b.depth || 0, x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] });
+    items.push({ order: b.order, depth: b.depth || 0, ref: b.ref, refName: b.refName,
+                 x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] });
   }
   items.sort(function (a, c) { return c.w * c.h - a.w * a.h; });
   var out = [];
@@ -156,13 +174,16 @@ function boxRectsSvg(boxes, opt) {
     var it = items[i];
     /* 深層的孫框：虛線、細一點、**不連動** ✓（沒有對應的部件格 ✓） */
     var sub = mode === "deep" && it.depth > 0;
+    /* ★ 提示＝**碼位 ＋ 第幾號異形** ✓；沒有 `opt.lib` 時退回舊寫法 ✓（其他頁面不受影響 ✓） */
+    var tip = L ? boxTipText(L, it)
+      : (sub ? "第 " + (it.depth + 1) + " 代（第 " + (it.order + 1) + " 個框）"
+             : "第 " + (it.order + 1) + " 個部件");
     out.push('<rect class="cbox' + (sub ? " sub" : "") + (it.order === active && !sub ? " on" : "") +
       '"' + (sub ? ' data-depth="' + it.depth + '"' : ' data-box="' + it.order + '"') +
       ' x="' + it.x.toFixed(1) + '" y="' + it.y.toFixed(1) + '"' +
       ' width="' + Math.max(1, it.w).toFixed(1) + '" height="' + Math.max(1, it.h).toFixed(1) + '"' +
       ' style="--c:' + boxColor(it.order) +
-      '"><title>' + (sub ? "第 " + (it.depth + 1) + " 代（第 " + (it.order + 1) + " 個框）"
-                         : "第 " + (it.order + 1) + " 個部件") + "</title></rect>");
+      '"><title>' + tip + "</title></rect>");
   }
   return out.join("");
 }

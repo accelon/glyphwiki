@@ -337,6 +337,8 @@ if (!existsSync(EDGE)) {
       out.push("Ddirect=" + document.querySelectorAll("#big .cbox:not(.sub)").length);
       out.push("Dpaths=" + document.querySelectorAll("#big svg path").length);
       out.push("Dchips=" + document.querySelectorAll("#seqChips .mini.comp").length);
+      out.push("Dtips=" + encodeURIComponent(Array.prototype.map.call(
+        document.querySelectorAll("#big .cbox title"), function (t) { return t.textContent; }).join(" | ")));
       /* 孫框**不可以**連動 ✓（它沒有對應的部件格 ✓） */
       var dsub = document.querySelector("#big .cbox.sub");
       if (dsub) dsub.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -952,6 +954,10 @@ if (!existsSync(EDGE)) {
     num("DsubClickOn") === 0
       ? ok("點孫框不會誤亮部件格（孫框沒有對應的部件 ✓）")
       : bad(`點孫框竟然亮了 ${num("DsubClickOn")} 個框`);
+    /* ★ 師父第 163 輪（補）：框的提示要給**碼位 ＋ 第幾號異形** ✓，不再是「第 n 個部件」✗ */
+    /U\+[0-9A-F]{4,6}/.test(txt("Dtips")) && /第 \d+ 號異形/.test(txt("Dtips")) && !/個部件/.test(txt("Dtips"))
+      ? ok(`框的提示＝「碼位 ＋ 第幾號異形」：${txt("Dtips").slice(0, 70)}… ✓`)
+      : bad(`框的提示不對（還是舊的「第 n 個部件」？）：${txt("Dtips")}`);
     txt("Dback") === "tight" ? ok("孫 → 原 → 無 → 緊：四態循環回到緊 ✓") : bad(`四態循環壞了：${txt("Dback")}`);
 
     // ---- 粗細

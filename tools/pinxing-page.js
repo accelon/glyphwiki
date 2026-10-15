@@ -1989,7 +1989,7 @@ function renderBig(scroll) {
     $("big").innerHTML = BOXMODE === "none"
       ? mainSvg()
       : bigSvgHtml(mainSvg(), BOXMODE === "deep" ? deepBoxesOfMain() : MAIN.boxes,
-                   { mode: BOXMODE, active: ACTIVE_BOX });
+                   { mode: BOXMODE, active: ACTIVE_BOX, lib: MAIN.lib });
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
   }
