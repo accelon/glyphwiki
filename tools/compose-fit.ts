@@ -138,6 +138,49 @@ export function inkOfPathInRoot(L: Lib, rootIdx: number, path: number[]): Box | 
   return inkBoxOfPolygons(polys).box;
 }
 
+/** 只畫**路徑上那一個部件**的圖形（根座標）——用來把選中的部件**染成框的顏色**
+ *  （師父 2026-10-15：選框時，屬於它的筆劃要**和框同色**、不要白色）。
+ *  作法與 inkOfPathInRoot() 完全相同（把整條鏈做成合成字形再交給引擎），
+ *  只是回傳**圖形**而不是框。找不到那條路徑就回 null。 */
+export function svgOfPathInRoot(L: Lib, rootIdx: number, path: number[]): string | null {
+  ensureEngine();
+  if (!path.length) return null;
+  const levels: { s: any }[] = [];
+  let g = drawingIdx(L, rootIdx);
+  for (let i = 0; i < path.length; i++) {
+    const gg = L.glyphs[g];
+    if (!gg) return null;
+    const s = gg.strokes[path[i]!] as any;
+    if (!s || s.kind !== 99 || s.ref === null || !s.box) return null;
+    levels.push({ s });
+    g = drawingIdx(L, s.ref as number);
+  }
+  const target = g;
+  const kage = new Kage();
+  const seen = new Set<number>();
+  const stack = [target];
+  while (stack.length) {
+    const i = stack.pop()!;
+    if (seen.has(i)) continue;
+    seen.add(i);
+    const gg = L.glyphs[i];
+    if (!gg) continue;
+    kage.kBuhin.push(keyOfIdx(L, i), toKageData(gg, L));
+    for (const s of gg.strokes) if (s.kind === 99 && s.ref !== null) stack.push(s.ref);
+  }
+  let childName = keyOfIdx(L, target);
+  for (let i = levels.length - 1; i >= 0; i--) {
+    const name = "__deep" + i;
+    const s = levels[i]!.s;
+    const stretch = (s.stretch as number[]) ?? [0, 0, 0, 0];
+    kage.kBuhin.push(name, "99:0:0:" + (s.box as number[]).join(":") + ":" + childName + ":" + stretch.join(":"));
+    childName = name;
+  }
+  const polys = new Polygons();
+  kage.makeGlyph(polys, childName);
+  return normalizeSvg(polys.generateSVG(true));
+}
+
 /** 父字裡「除了某個引用之外」其他引用的墨跡聯集（父座標）；只有一個引用時回 null */
 export function siblingInkOf(L: Lib, parentIdx: number, exceptStrokeIx: number): Box | null {
   const g = L.glyphs[parentIdx]!;

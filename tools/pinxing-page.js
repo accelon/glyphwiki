@@ -212,12 +212,51 @@ function frontierBoxesOfMain() {
       } else {
         out.push({ ref: s.ref, refName: s.refName, slotIx: k, strokeIx: s.strokeIx,
                    raw: box, tight: box, idsOnly: false, order: out.length,
-                   abs: box, depth: depth });
+                   abs: box, depth: depth, path: p });
       }
     }
   };
   walk(MAIN.idx, [], 0);
   return out;
+}
+/** ★ 師父 2026-10-15：選中一個框時，**屬於它的筆劃要染成框的顏色**（不要白色）。
+ *  作法：只把那一條引用路徑交給引擎畫一次（根座標），再把黑填色換成框色。
+ *  回傳的是**內部的 <path>**（不含 <svg>）。找不到就回空字串。 */
+function partSvgOfMain(order) {
+  if (!MAIN || order < 0) return "";
+  var list = SHOW_MID ? deepBoxesOfMain() : (isComposed() ? frontierBoxesOfMain() : MAIN.boxes);
+  var b = null;
+  for (var i = 0; i < (list || []).length; i++) {
+    if (list[i] && list[i].order === order) { b = list[i]; break; }
+  }
+  if (!b) return "";
+  var path = b.path || ((b.strokeIx !== undefined && b.strokeIx >= 0) ? [b.strokeIx] : null);
+  /* 緊框的清單是**配對過的** CompBox ✓，不一定帶 `strokeIx` ✗——
+     退回「子孫表」裡找**同一個引用**那一格（第一個＝最淺的那一層 ✓）。 */
+  if (!path || !path.length) {
+    var nodes = deepBoxesOfMain();
+    for (var n = 0; n < (nodes || []).length; n++) {
+      if (nodes[n] && nodes[n].ref === b.ref && nodes[n].path && nodes[n].path.length) {
+        path = nodes[n].path; break;
+      }
+    }
+  }
+  if (!path || !path.length) return "";
+  var svg = null;
+  try { svg = svgOfPathInRoot(MAIN.lib, MAIN.idx, path); } catch (e) { return ""; }
+  if (!svg) return "";
+  var inner = svg.replace(/^[\s\S]*?<svg\b[^>]*>/, "").replace(/<\/svg>\s*$/, "");
+  return inner.replace(/fill="(?:black|#000000)"/gi, 'fill="' + boxColor(order) + '"');
+}
+
+/** 把 `.hllayer` 的內容換成「第 box 個部件、染成框色」的筆劃 ✓。
+ *  ⚠ **只換這一層**、不重畫整個字形 ✓——滑過框時才不會閃爍 ✓（換掉游標底下的元素會抖 ✗）。 */
+function paintActiveStrokes(box) {
+  var host = $("big");
+  var lay = host ? host.querySelector(".hllayer") : null;
+  if (!lay) return;
+  if (box === undefined || box === null) box = ACTIVE_BOX;
+  lay.innerHTML = box >= 0 ? partSvgOfMain(box) : "";
 }
 
 function mainSvg() { return MAIN ? svgOfLib(MAIN.lib, MAIN.idx) : ""; }
@@ -2213,9 +2252,12 @@ function renderBig(scroll) {
     if (SHOW_MID) { bx = deepBoxesOfMain(); bmode = "deep"; }
     else if (isComposed()) { bx = frontierBoxesOfMain(); }
     else { bx = MAIN.boxes; }
+    /* ★ 選中的部件：筆劃染成框色 ✓（獨立一層 `.hllayer`，**在框層下面** ✓） */
+    var hl = '<svg class="hllayer" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"></svg>';
     $("big").innerHTML = BOXMODE === "none"
       ? mainSvg()
-      : bigSvgHtml(mainSvg(), bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
+      : bigSvgHtml(mainSvg() + hl, bx, { mode: bmode, active: ACTIVE_BOX, lib: MAIN.lib });
+    paintActiveStrokes(ACTIVE_BOX);
   } catch (e) {
     $("big").innerHTML = '<div class="ph">引擎描繪失敗：' + (e && e.message) + "</div>";
   }
@@ -2344,16 +2386,22 @@ function bind() {
      （孫框才看得出對應的是哪一格 ✓；以前只有「點下去」才連動 ✗）。 */
   $("big").addEventListener("mouseover", function (e) {
     var r = e.target.closest ? e.target.closest(".cbox") : null;
-    hoverChip(r && r.hasAttribute("data-box") ? Number(r.getAttribute("data-box")) : -1);
+    var bx = (r && r.hasAttribute("data-box")) ? Number(r.getAttribute("data-box")) : -1;
+    hoverChip(bx);
+    /* ★ 滑過框 → 那一格的筆劃也**染成框色** ✓（師父 2026-10-15；滑出＝回到選中的那格 ✓） */
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
   });
-  $("big").addEventListener("mouseleave", function () { hoverChip(-1); });
+  $("big").addEventListener("mouseleave", function () { hoverChip(-1); paintActiveStrokes(ACTIVE_BOX); });
 
   /* ★ 反向也要通 ✓：滑過部件清單的格子 → 大字上對應的框也亮起來 ✓ */
   $("seqChips").addEventListener("mouseover", function (e) {
     var m = e.target.closest ? e.target.closest(".mini.comp") : null;
-    hoverFrame(m && m.hasAttribute("data-box") ? Number(m.getAttribute("data-box")) : -1);
+    var bx = (m && m.hasAttribute("data-box")) ? Number(m.getAttribute("data-box")) : -1;
+    hoverFrame(bx);
+    /* ★ 反向也要染色 ✓（滑過清單的格子 → 大字那一格的筆劃變框色 ✓） */
+    paintActiveStrokes(bx >= 0 ? bx : ACTIVE_BOX);
   });
-  $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); });
+  $("seqChips").addEventListener("mouseleave", function () { hoverFrame(-1); paintActiveStrokes(ACTIVE_BOX); });
 
   /* 庫存：點一列 ＝ 把整個序列帶進輸入區 ✓（刪除改用輸入區右邊的垃圾桶鈕 ✓） */
   $("stock").addEventListener("click", function (e) {

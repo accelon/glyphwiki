@@ -224,6 +224,9 @@ export interface DescBox extends CompBox {
   abs: Box | null;
   /** 0＝根的直接分量 ✓；1＝孫 ✓；2＝曾孫 ✓… */
   depth: number;
+  /** 從根走到這一格的**引用路徑**（每一層的 `strokeIx` ✓）；沒有路徑＝null ✓
+   *  ——選中框時要把那一格的筆劃**染成框色** ✓（見 `svgOfPathInRoot()` ✓）。 */
+  path: number[] | null;
 }
 
 /** 座標變換（子 → 父）：`x父 = k * x子 + tx` ✓ */
@@ -303,7 +306,7 @@ export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure,
         abs = (ink && childTf) ? tfBox(ink, childTf)
           : (e.raw ? tfBox(e.raw, tf) : (e.tight ? tfBox(e.tight, tf) : null));
       }
-      out.push({ ...e, order: out.length, abs, depth });
+      out.push({ ...e, order: out.length, abs, depth, path });
       /* 只往**真正的 KAGE 引用**走 ✓（`slotIx >= 0`），而且要用**路徑上的實際引用** ✓ */
       if (path && actual !== null && e.slotIx >= 0) next.push({ ref: actual, tf: childTf ?? tf, path });
     }

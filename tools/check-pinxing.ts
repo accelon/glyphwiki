@@ -324,11 +324,33 @@ if (!existsSync(EDGE)) {
         out.push("FmidOff=" + document.querySelectorAll("#big .cbox").length);
         b.click(); modeInfo("Fnone");
         b.click(); modeInfo("Fback");
+        /* ★ 師父 2026-10-15：框色＝HSV 色相**每格轉 30 度** ✓ */
+        var cs = document.querySelectorAll("#big .cbox");
+        var hues = [];
+        for (var q = 0; q < cs.length && q < 4; q++) {
+          var v = cs[q].style.getPropertyValue("--c");
+          var t = v.slice(4, -1).split(",");
+          var rr = Number(t[0]) / 255, gg = Number(t[1]) / 255, bb = Number(t[2]) / 255;
+          var mx = Math.max(rr, gg, bb), mn = Math.min(rr, gg, bb), dd = mx - mn;
+          var hh = !dd ? 0 : (mx === rr ? ((gg - bb) / dd + (gg < bb ? 6 : 0))
+            : mx === gg ? ((bb - rr) / dd + 2) : ((rr - gg) / dd + 4));
+          hues.push(Math.round(hh * 60));
+        }
+        out.push("Fhues=" + hues.join(","));
+        var diffs = [];
+        for (var w = 1; w < hues.length; w++) diffs.push(((hues[w] - hues[w - 1]) % 360 + 360) % 360);
+        out.push("FhueDiffs=" + diffs.join(","));
         var box = document.querySelector("#big .cbox");
         out.push("Fclicked=" + (!!box));
         if (box) box.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         out.push("FactiveChip=" + document.querySelectorAll("#seqChips .mini.comp.on").length);
         out.push("FactiveBox=" + document.querySelectorAll("#big .cbox.on").length);
+        /* ★ 選中的部件：筆劃要染成**框色**（不是白色 ✓） */
+        var lay = document.querySelector("#big .hllayer");
+        out.push("FhlPaths=" + (lay ? lay.querySelectorAll("path").length : -1));
+        out.push("FhlFill=" + (lay && lay.querySelector("path") ? lay.querySelector("path").getAttribute("fill") : ""));
+        var b0 = document.querySelector("#big .cbox");
+        out.push("Fbox0c=" + (b0 ? b0.style.getPropertyValue("--c") : ""));
       } catch (e) { out.push("FEXC=" + e.message); }
     },
     /* --- 「字框：孫」：所有子孫的框（直到獨體）--- */
@@ -986,6 +1008,14 @@ if (!existsSync(EDGE)) {
       ? ok(`點框 → 框與部件序列互相亮起（框 ${num("FactiveBox")} 個、清單 ${num("FactiveChip")} 格）`)
       : bad(`框／清單連動沒生效：框 ${num("FactiveBox")}、清單 ${num("FactiveChip")}` +
             `（clicked=${txt("Fclicked")} EXC=${txt("FEXC")}）`);
+    /* ★ 師父 2026-10-15：框色＝HSV 色相漸變、**每次轉 30 度** ✓ */
+    /^(30,)*30$/.test(txt("FhueDiffs"))
+      ? ok(`框色是 HSV 色相漸變：每格轉 30 度（色相 ${txt("Fhues")} ✓）`)
+      : bad(`框色的色相間隔不對：hues=${txt("Fhues")} diffs=${txt("FhueDiffs")}`);
+    /* ★ 選中的部件：**筆劃染成框色**（不要白色 ✓） */
+    num("FhlPaths") > 0 && txt("FhlFill") === txt("Fbox0c")
+      ? ok(`選中的部件筆劃＝框色 ${txt("FhlFill")}（${num("FhlPaths")} 條路徑 ✓、不是白色 ✓）`)
+      : bad(`選中的部件沒有染成框色：paths=${num("FhlPaths")} fill=${txt("FhlFill")} box=${txt("Fbox0c")}`);
 
     // ---- 中間部件：孫框（所有子孫）
     txt("Dmode") === "show" && /字框：顯/.test(txt("Dlabel"))

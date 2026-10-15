@@ -122,10 +122,11 @@ function clearDrawCache() { svgCache.clear(); inkCache.clear(); }
 
 /* ============================ 部件框 ============================ */
 
-/* 每個部件一個顏色。刻意跟「區塊配色」用不同的一組色相，
-   免得看框的時候誤以為是在講跨區塊。 */
-var BOX_HUES = [18, 200, 95, 320, 150, 265, 45, 175];
-function boxColor(order) { return hsv(BOX_HUES[order % BOX_HUES.length], 0.72, 1); }
+/* ★ 師父 2026-10-15：框色改成 **HSV 色相漸變、每一格轉 30 度** ✓
+   （以前是一組固定的色相 ✗——現在照順序 0、30、60… 一路排下去 ✓，
+   一整圈 12 格，第 13 格再回到 0 度，與第 1 格同色 ✓）。 */
+var BOX_HUE0 = 0, BOX_HUE_STEP = 30;
+function boxColor(order) { return hsv((BOX_HUE0 + order * BOX_HUE_STEP) % 360, 0.72, 1); }
 
 /**
  * 大字上的部件框。回傳 `<g>` 片段，直接接在字形的 svg 內容後面即可

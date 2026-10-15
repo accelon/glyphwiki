@@ -172,6 +172,10 @@ const html = `<!DOCTYPE html>
      框是**獨立一層 svg.boxlayer**，絕對定位疊上去——
      g 單獨塞進 HTML 會被解析器丟掉（踩過：大字的框整個不見）。 */
   .stage .boxlayer { position:absolute; left:0; top:0; width:200px; height:200px; }
+  /* ★ 選中的部件：**筆劃染成框色**的一層 ✓（師父 2026-10-15）。
+     文件序在 boxlayer **之前**＝畫在框的下面 ✓（框線不會被蓋掉 ✓）；
+     不吃滑鼠事件 ✓（點框還是由框層決定 ✓）。 */
+  .stage .hllayer { position:absolute; left:0; top:0; width:200px; height:200px; pointer-events:none; }
   .cbox { fill:color-mix(in srgb, var(--c) 11%, transparent); stroke:var(--c); stroke-width:1.4; cursor:pointer; }
   .cbox:hover { fill:color-mix(in srgb, var(--c) 24%, transparent); stroke-width:2.2; }
   .cbox.on { fill:color-mix(in srgb, var(--c) 30%, transparent); stroke-width:2.6; }
