@@ -243,6 +243,23 @@ function placeTf(slot: Box, childInk: Box | null): Tf {
            ty: slot[1] + (sh - ch * k) / 2 - childInk[1] * k };
 }
 
+/** 一格的**直接引用**（純 KAGE ✓）——**孫框要的是「實際畫出來」的那一格** ✓。
+ *
+ *  ⚠ 為什麼不用 `componentBoxesShallow()` 往下走 ✗：
+ *  它會拿**這個字的 `comp` 表**去重新配對引用 ✗，而拼形的結果是把某個引用**換掉**了
+ *  （例 `寶缶支`：`缶 → 支` ✓）——於是它把換上去的 `支` 又改名回原本那個
+ *  `缶` 的相關字 ✗（實測：孫框會指到錯的字，數目也不對 ✗，師父 2026-10-15 抓到 ✓）。
+ *  直接看**引擎真正引用的那幾格**才對得上畫面 ✓。 */
+function rawRefBoxes(L: Library, g: number): CompBox[] {
+  const out: CompBox[] = [];
+  const slots = refSlotsOf(L, drawingIdx(L, g));
+  for (const s of slots) {
+    out.push({ ref: s.ref, refName: s.refName, slotIx: out.length,
+               raw: s.box as Box, tight: null, idsOnly: false, order: out.length });
+  }
+  return out;
+}
+
 export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure): DescBox[] {
   const measure: InkMeasure = inkOf ?? ((i: number) => inkBoundsFromStrokes(L, i));
   const out: DescBox[] = [];
@@ -267,11 +284,20 @@ export function descendantBoxes(L: Library, gi: number, inkOf?: InkMeasure): Des
     if (depth > 12 || !from.length) return;
     const next: { ref: number; tf: Tf }[] = [];
     for (const n of from) {
-      const g = L.glyphs[n.ref];
-      if (!g) continue;
-      const hasOwn = g.strokes.some((s) => s.kind !== 99 && s.kind !== 0);
-      if (hasOwn) continue;                       /* 自己會畫＝葉（獨體）✓，停 ✓ */
-      next.push(...emit(componentBoxesShallow(L, n.ref, inkOf), n.tf, depth));
+      if (!L.glyphs[n.ref]) continue;
+      const cp = codePointOf(L, n.ref);
+      const comps = (cp && L.comp) ? L.comp.get(cp) : undefined;
+      /* ⚠ **停止條件不可以是「自己有手畫的筆劃」** ✗（第 138 輪的舊規則）——
+         很多合字是**引用與手畫混著**（例 `寶缶支` 的 `𡩧`：筆劃是 `99,1,1,1,2,99`），
+         用那一條會在 `𡩧` 就停住 ✗（師父 2026-10-15 抓到：那題應該有 4～5 個框 ✗）。
+         正確的停止條件＝**它是不是合字** ✓（就是**獨體**的定義 ✓）：
+         有碼位 → 看 `comp` 表 ✓（獨體的 `comp` 已被清掉 ✓）；
+         沒有碼位的內部字形 → 退回「部件清單非空」✓。
+         ⚠ 只看「部件清單非空」還不夠 ✗：`宀` 是獨體，卻有一個 KAGE 引用（冖）✗
+           ——那不是它的部件，會多畫一個假框 ✗。 */
+      if (cp && !(comps && comps.length)) continue;
+      /* 往下一層用**實際的 KAGE 引用** ✓（見 `rawRefBoxes()` 的說明 ✓） */
+      next.push(...emit(rawRefBoxes(L, n.ref), n.tf, depth));
     }
     step(next, depth + 1);
   };
