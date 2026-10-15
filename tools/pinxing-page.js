@@ -995,12 +995,16 @@ function showEl(el, on) {
 
 /** 設定魔術棒的狀態 ✓（見檔頭的 WAND ✓）。
  *  seqs 有值＝這次 IDS 算出來的建議序（**不寫在畫面上** ✗）；
- *  setWand(null, true)＝「保留」：輸入區現在就是剛套用的建議序時，魔術棒要繼續站著 ✓
- *  （客人才能再點換下一個 ✓）；其餘情形收起來 ✓。 */
+ *  setWand(null, true)＝「保留」：輸入區現在就是剛套用的**那一個**建議序，
+ *  而且**後面還有沒看過的** ✓ → 魔術棒繼續站著（再點換下一個 ✓）。
+ *  ⚠ **沒有推薦構字序時一定要收起來** ✗——包括「全部建議都看過了」的情形 ✓
+ *    （師父 2026-10-15 的指示：沒有推薦就隱藏魔杖 ✓）。 */
 function setWand(seqs, keepIfCurrent) {
   var b = $("wand");
   if (seqs) { WAND.seqs = seqs.slice(); WAND.ix = -1; }
-  else if (!(keepIfCurrent && WAND.seqs.length && WAND.seqs.indexOf($("seq").value) >= 0)) {
+  else if (!(keepIfCurrent && WAND.seqs.length &&
+             WAND.ix < WAND.seqs.length - 1 &&              /* 後面還有沒看過的 ✓ */
+             $("seq").value === WAND.seqs[WAND.ix])) {
     WAND.seqs = []; WAND.ix = -1;
   }
   if (b) b.hidden = !WAND.seqs.length;

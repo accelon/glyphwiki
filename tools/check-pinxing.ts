@@ -676,7 +676,10 @@ if (!existsSync(EDGE)) {
       out.push("PidsStock=" + idRows.length + "," +
         encodeURIComponent(Array.prototype.map.call(idRows, function (r) { return r.getAttribute("data-ids"); }).join(" ")));
       /* ★ 師父第 136 輪：**魔術棒 🪄**（在「存起來」左邊 ✓）——
-         有建議的構形序時才出現 ✓；點一下＝把下一個建議填進輸入區 ✓（不把序寫在畫面上 ✓）。 */
+         有建議的構形序時才出現 ✓；點一下＝把下一個建議填進輸入區 ✓（不把序寫在畫面上 ✓）。
+         ⚠ 先重貼一次 IDS：上面那一列 chip 已經被點過（輸入區變成構形序了），
+           要回到「剛貼 IDS」的狀態才量得到魔杖本身 ✓。 */
+      setSeq("⿰木⿳金⿰水火土");
       var wandEl = document.getElementById("wand");
       out.push("Pwand=" + (wandEl ? "yes" : "MISSING") +
         ",text=" + encodeURIComponent(wandEl ? wandEl.textContent : "") +
@@ -692,6 +695,17 @@ if (!existsSync(EDGE)) {
       var wandV1 = seqEl().value;
       if (wandEl) wandEl.click();
       out.push("PwandClick2=" + encodeURIComponent((seqEl().value === wandV1 ? "same:" : "next:") + seqEl().value));
+      /* ★ 沒有推薦構字序時要**隱藏** ✓（師父 2026-10-15 的指示）——
+         全部建議都看過了就收起 ✓；還有多個沒看過才留著可再點 ✓（⿰木垚 有 4 個 ✓）。 */
+      setSeq("⿰木垚");
+      out.push("PwandMulti=hidden=" + (wandEl ? String(!!wandEl.hidden) : "MISSING") +
+        ",n=" + (window.WAND ? window.WAND.seqs.length : -1));
+      if (wandEl) wandEl.click();
+      var wandM1 = seqEl().value;
+      out.push("PwandMulti1=" + encodeURIComponent(wandM1 + " hidden=" + String(!!wandEl.hidden)));
+      if (wandEl) wandEl.click();
+      out.push("PwandMulti2=" + encodeURIComponent((seqEl().value === wandM1 ? "same:" : "next:") + seqEl().value +
+        " hidden=" + String(!!wandEl.hidden)));
       setSeq("⿳𦥯⿰女孔皿");
       var idsChips2 = document.querySelectorAll("#sugRow .seqchip");
       out.push("Pids2=" + encodeURIComponent(idsChips2.length ? (idsChips2[0].getAttribute("data-sug") || "") : "MISSING") +
@@ -1210,15 +1224,29 @@ if (!existsSync(EDGE)) {
       const wandClick = txt("PwandClick");
       const wandClick2 = txt("PwandClick2");
       const wandIdle = txt("PwandIdle");
+      const wandMulti = txt("PwandMulti");
+      const wandMulti1 = txt("PwandMulti1");
+      const wandMulti2 = txt("PwandMulti2");
+      const wandN = Number(/n=(\d+)/.exec(wandRaw)?.[1] ?? "0");
       /^yes,text=🪄,hidden=false,disp=flex,before=saveSeq,n=[1-9]/.test(wandRaw)
-        ? ok(`魔術棒 🪄 就位（在「存起來」左邊 ✓、建議 ${/n=(\d+)/.exec(wandRaw)?.[1]} 個 ✓）`)
+        ? ok(`魔術棒 🪄 就位（在「存起來」左邊 ✓、建議 ${wandN} 個 ✓）`)
         : bad(`魔術棒不對：${wandRaw.slice(0, 140)}`);
-      /mode=(ok|partial)/.test(wandClick) && /bigPaths=[1-9]/.test(wandClick) && /hidden=false/.test(wandClick)
-        ? ok(`點魔術棒 → 建議的構形序填進輸入區並組出來（${wandClick}）✓`)
-        : bad(`點魔術棒沒作用：${wandClick}`);
+      /* ★ 沒有推薦構字序時**一定要隱藏** ✓（師父的指示）——
+         只有 1 個建議時：點完就收起 ✓；還有多個沒看過才留著 ✓。 */
+      /mode=(ok|partial)/.test(wandClick) && /bigPaths=[1-9]/.test(wandClick) &&
+      (/hidden=true/.test(wandClick) === (wandN <= 1))
+        ? ok(`點魔術棒 → 建議的構形序填進輸入區並組出來（${wandClick}）；` +
+            (wandN <= 1 ? "只剩這一個→魔杖收起 ✓" : "後面還有→魔杖留著 ✓"))
+        : bad(`點魔術棒不對：${wandClick}（建議 ${wandN} 個）`);
       /^next:/.test(wandClick2)
         ? ok(`再點一次 → 換下一個建議（${wandClick2}）✓`)
         : ok(`只有一個建議時，再點仍是同一個（${wandClick2}）`);
+      /^hidden=false,n=[2-9]/.test(wandMulti)
+        ? ok(`有 ${/n=(\d+)/.exec(wandMulti)?.[1]} 個建議時魔杖留著可再點 ✓`)
+        : bad(`多個建議時魔杖狀態不對：${wandMulti}`);
+      /hidden=false/.test(wandMulti1) && /hidden=false/.test(wandMulti2)
+        ? ok(`還有多個沒看過 → 魔杖繼續留著（${wandMulti2}）✓`)
+        : bad(`多個建議的收起時機不對：${wandMulti1}／${wandMulti2}`);
       wandIdle === "true"
         ? ok("不是 IDS 模式時，魔術棒收起來 ✓")
         : bad(`魔術棒不該在一般模式出現：hidden=${wandIdle}`);
