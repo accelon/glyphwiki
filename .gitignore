@@ -38,3 +38,32 @@ nul
 ids/
 kage-engine/
 unicode-cjk-ids/
+
+# gocore（Go 模組）的產物——全部可重建，不入版控
+#   .cache/    Go 的 build cache（DSH 沙箱下 GOCACHE 必須重導進工作區，見 gocore/README.md）
+#   _gen/      `tools/lib-format.ts` 的暫存複本（沙箱下 bun 的模組載入器讀不到 tools/，見 refdump.ts）
+#   testdata/  差分測試的 golden 檔與字庫複本（由 `bun run gocore/refdump.ts` 產生）
+gocore/.cache/
+gocore/_gen/
+gocore/testdata/
+
+# pinxing-app（Wails3 殼）的產物——全部可重建，不入版控
+#   .cache/                           Go 的 build cache（沙箱下必須重導進工作區）
+#   *.exe                             編譯產物
+#   *.syso                            Windows 資源物件（manifest＋版本資源＋圖示，由 wails3 generate syso 產生）
+#   *.log                             啟動日誌（執行時寫在 exe 旁邊）
+#   internal/glyphdata/*.bin.gz       `out/` 字庫的複本（go:embed 只能嵌模組目錄內的檔案）
+#   go.sum **要**進版控（相依鎖定）
+#   build/appicon.png、build/windows/icon.ico **要**進版控（是來源資產，不是產物）
+pinxing-app/.cache/
+pinxing-app/*.exe
+pinxing-app/*.syso
+pinxing-app/*.log
+pinxing-app/internal/glyphdata/*.bin.gz
+# 前端是**產生出來的**：`bun run tools/build-pinxing.ts --hosted`（build.ps1 會跑）。
+# 頁面程式碼的唯一來源是 tools/pinxing-page.js 與它內嵌的模組——
+# 這樣才不會出現兩份各說各話的頁面。
+pinxing-app/frontend/index.html
+# WebView2 的 user data folder（保底放在 exe 旁邊，見 internal/wvdata）——
+# 它是執行時的設定檔快取，不入版控
+pinxing-app/pinxing-app.webview2/
