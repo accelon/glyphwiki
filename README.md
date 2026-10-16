@@ -17,6 +17,9 @@
 | [`progress/組字結構現況.md`](progress/組字結構現況.md) | 一頁版現況（四塊資料、數字、取捨） |
 | [`組字結構.md`](組字結構.md) | 組字結構的**技術決策史**（§1～§6.21，含每一次的教訓） |
 | [`progress/pinxing-技術總結.md`](progress/pinxing-技術總結.md) | **開新對話／新接手時讀這篇。** 拼形檢視器的架構、引擎語意、配框與槽位推斷、驗收、本次改動清單 |
+| [`pinxing-app/README.md`](pinxing-app/README.md) | **Wails3 版的拼形檢視器**（單一 exe、字庫內嵌、零外部相依）：建置、字庫交付、實測數字 |
+| [`gocore/README.md`](gocore/README.md) | **Go 模組**：字庫解碼與查詢（給其他 Wails3 程式 import 的組字能力）＋對 JS 的全庫差分測試 |
+| [`wails3-notice.md`](wails3-notice.md) | **要建 Wails3 程式時先讀這篇。** 實測踩過的坑：GUI 子系統、WebView2 的 `800700aa`、無主控台的錯誤處理、`.ps1` 的 BOM… |
 | [`pinxing.md`](pinxing.md) | 拼形檢視器的**規格與現況**（含還沒通的部分）、介面決定的來由 |
 | [`部件形式.md`](部件形式.md) | **功能構思**：位置形（左邊的手＝`扌`、右邊的刀＝`刂`）——為什麼「算框」只是治標 |
 | [`format.md`](format.md) | 字庫二進位格式 v1／v2／v3、`componentKids()` 契約、家族只收區段內碼位（IDC 修正） |
@@ -30,7 +33,7 @@
 
 同一個專案的另一種寫法（沿著〈煉丹篇〉的寓言線）：
 
-這五篇放在 [`novel/`](novel/)：
+這九篇放在 [`novel/`](novel/)：
 
 - [`novel/托付篇.md`](novel/托付篇.md)　——交棒
 - [`novel/煉丹篇.md`](novel/煉丹篇.md)　——把資料清乾淨、煉出字庫與自動組字
@@ -39,6 +42,8 @@
 - [`novel/鑑丹篇.md`](novel/鑑丹篇.md)　——照見、借鑑、監工品管；算力攻堅與人的謀定
 - [`novel/問診篇.md`](novel/問診篇.md)　——問診如問路；畫像是給客人看的，不參與計算；先問爐子，再談分數
 - [`novel/裁衣篇.md`](novel/裁衣篇.md)　——新法與舊法的比較：舊法是階梯，新法是丹；一件事只能有一份做法
+- [`novel/服丹篇.md`](novel/服丹篇.md)　——把丹端到客人手邊：打不開的門、巴掌大的桌、三把尺都說對不等於真的對
+- [`novel/過江篇.md`](novel/過江篇.md)　——把爐子搬到別人的地盤上開：在沒有檯面的地方，沉默等於消失；**地頭不講理，但地頭有帳本**
 
 ---
 
@@ -58,21 +63,34 @@ bun run verify --list   # 列出步驟（含被跳過的）
 
 ## 版控範圍
 
-**只追蹤兩個位置的 `*.md`：根目錄，以及 `novel/`。**
+> ⚠ **這一節原本與實際狀態不一致，已於 2026-10-16 更正。**
+> 舊文寫「只追蹤根目錄與 `novel/` 的 `*.md`」，但實際上
+> **`tools/`（151 個檔）與 `package.json` 早就在版控裡**——那是有意的：
+> 專案吃過「**`tools` 沒 commit 就會失去**」的虧（見
+> [`progress/20261015交接.md`](progress/20261015交接.md)）。**程式碼是要追蹤的。**
 
-（`novel/` 放非技術的寓言文本。以後若再開文件夾，這裡與下面的指令要一起改。）
+實際追蹤的：
+
+| 類別 | 項目 |
+| --- | --- |
+| 文件 | 根目錄 `*.md`、`novel/*.md`、`progress/*.md` |
+| 程式碼 | `tools/`（151 個檔）、`package.json` |
+| **Go 模組** | **`gocore/`**（字庫解碼與查詢、全庫差分測試） |
+| **Wails3 應用** | **`pinxing-app/`**（原始碼 ＋ `build/` 的 manifest／`info.json`／圖示等**來源資產**） |
+| 圖片 | 根目錄的 `*.png`（`xue.png`、`elements.png`、`money.png`…） |
 
 不追蹤的東西（刻意留在 `git status` 的未追蹤清單裡）：
 
 | 類別 | 項目 |
 | --- | --- |
-| 程式碼與設定 | `tools/`、`kage-engine/`、`vendor-cm/`、`gokage/`、`package.json` |
+| 巢狀 repo | `kage-engine/`、`vendor-cm/`、`unicode-cjk-ids/`（各自有 `.git`，整包只算一個未追蹤目錄） |
+| 已放棄的實驗 | `gokage/` |
 | 資料與產物 | `db/`、`out/`、`dump/`、`dump.tar.gz` |
-| 巢狀 repo | `unicode-cjk-ids/`（自己有 `.git`，整包只算一個未追蹤目錄） |
 | 上游／權威資料 | `unihan/`（Unicode 官方 Unihan 18.0.0：`UnicodeData.txt`、`Unihan_Variants.txt`…，可重新下載）、`swjz.xml`、`ids/` |
 | 雜項 | `nul`（Windows 的 NUL 裝置，不是真的檔案） |
 
-`.gitignore` 只寫「可重建」的規則（`db/`、`out/`、`node_modules/`、`vendor-cm/dist/`）。
+`.gitignore` 只寫**「可重建」**的規則（`db/`、`out/`、`node_modules/`、`vendor-cm/dist/`，
+以及 `pinxing-app` 的 `*.exe`／`*.syso`／`*.log`／產生的前端／內嵌字庫複本）。
 **其餘不追蹤的東西刻意不寫進 ignore。**
 
 ---
@@ -81,12 +99,19 @@ bun run verify --list   # 列出步驟（含被跳過的）
 
 ### 什麼時候
 
-使用者說 **「今日收工」** 或 **「結束本對話」** 時，把這一輪改動過的 `.md` 上傳。
+使用者說 **「今日收工」** 或 **「結束本對話」** 時，把這一輪改動過的東西上傳
+（**含程式碼**，不只是 `.md`——見下面的「收哪些」）。
 **平時不要自己 commit／push。**
 
 ### 收哪些
 
-根目錄與 `novel/` 的 `*.md`，**用明確的清單**。
+**三類都要收，用明確的清單**（不要靠 glob，見下面的警告）：
+
+1. **文件**：根目錄 `*.md`、`novel/*.md`、`progress/*.md`
+2. **程式碼**：`tools/`、`gocore/`、`pinxing-app/`
+   ⚠ **不要漏掉後兩個**——專案吃過「`tools` 沒 commit 就會失去」的虧
+   （見 [`progress/20261015交接.md`](progress/20261015交接.md)）
+3. **來源資產**：根目錄 `*.png`、`pinxing-app/build/`（manifest／`info.json`／圖示）
 
 > ⚠ **不要用 `git add '*.md'`。**
 > git 的 pathspec 不含斜線時會**撈到子目錄**——實測 `git add --dry-run -- '*.md'`
@@ -95,19 +120,27 @@ bun run verify --list   # 列出步驟（含被跳過的）
 > ⚠ **不要用 `git add -A` 或 `git add .`。**
 > `dump.tar.gz` 有 **111 MB**（超過 GitHub 單檔 100 MB 上限），`dump/` 更大，
 > 一起拉進來會被直接退件。
+>
+> **但「用明確的清單加整個目錄」是安全的**：`.gitignore` 已經把產物擋掉了
+> （`pinxing-app` 的 `*.exe`／`*.syso`／`*.log`／`frontend/index.html`／
+> `internal/glyphdata/*.bin.gz`／`.cache/`／`*.webview2/`）。
 
 ### 指令（PowerShell，實測可用）
 
 ```powershell
 Set-Location D:\2023\glyphwiki
 
-# 用明確的清單，直接把檔名當參數傳（不要靠 glob，見上面的警告）
+# 文件：明確清單（不要用 '*.md'，它會撈到子目錄）
 $files = @(
   Get-ChildItem -File -Filter *.md | ForEach-Object { $_.Name }
   Get-ChildItem novel -File -Filter *.md | ForEach-Object { "novel/$($_.Name)" }
+  Get-ChildItem progress -File -Filter *.md | ForEach-Object { "progress/$($_.Name)" }
 )
+# 程式碼與來源資產：整包加目錄
+$files += @('tools', 'gocore', 'pinxing-app', 'package.json')
+
 git add -- $files
-git status --short                      # 確認清單裡只有 .md
+git status --short     # ⚠ 一定要看：不可以出現 *.exe／*.syso／*.log／out/／db/
 
 git commit -m "docs: <這一輪改了什麼>"
 git push

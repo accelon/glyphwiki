@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  app.manifest —— pinxing-app 的 Windows 應用程式資訊清單。
+
+  為什麼一定要有這個（不是可有可無的裝飾）：
+    * 沒有 manifest 的 exe 會被 Windows 當成「無身分的舊式程式」——
+      不套用 Common Controls v6、不會宣告 DPI 感知、也沒有 requestedExecutionLevel。
+      **這正是防毒啟發式最愛的樣態之一**（未簽章 ＋ 無 manifest ＋ 無版本資訊）。
+    * DPI：本 App 是手機豎版優先的窄版面，在高 DPI 螢幕上不宣告感知會被系統糊化。
+
+  內容沿用 Wails3 範本（`wails3 init` 產生的 `build/windows/wails.exe.manifest`），
+  只把 assemblyIdentity 換成本專案，並加上 longPathAware。
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
+    <assemblyIdentity type="win32" name="com.glyphwiki.pinxing" version="0.1.0" processorArchitecture="*"/>
+    <dependency>
+        <dependentAssembly>
+            <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
+        </dependentAssembly>
+    </dependency>
+    <asmv3:application>
+        <asmv3:windowsSettings>
+            <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware> <!-- Windows 7／8 的後備 -->
+            <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">permonitorv2,permonitor</dpiAwareness> <!-- 不支援 v2 就退回 per-monitor -->
+            <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+        </asmv3:windowsSettings>
+    </asmv3:application>
+    <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
+        <security>
+            <requestedPrivileges>
+                <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+            </requestedPrivileges>
+        </security>
+    </trustInfo>
+</assembly>

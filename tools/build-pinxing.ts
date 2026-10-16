@@ -16,11 +16,32 @@ import {
 
 const OUT = resolve(ROOT, "out/pinxing.html");
 
+/* ★ 2026-10-16：**同一份頁面程式碼，兩種宿主** ✓。
+ *
+ *   離線單頁（預設）      out/pinxing.html                  字庫以 base64 內嵌 → `file://` 可開
+ *   宿主模式（--hosted）  pinxing-app/frontend/index.html   字庫改由 `/lib.bin` 一次 fetch
+ *
+ * ⚠ 兩者用**同一份** `tools/pinxing-page.js` 與同一組內嵌模組 ✓——
+ *   差別只有「字庫從哪裡來」那一行（`loadLibBytes()`，見該檔的說明）✗ 不各自複製 ✓。
+ *   這個專案吃過「同一個東西兩份來源各說各話」的虧（見 embed-common.ts 檔頭），
+ *   所以寧可在這裡多一個開關，也不要多一份頁面。
+ *
+ * 用法:
+ *   bun run tools/build-pinxing.ts              # 離線單頁
+ *   bun run tools/build-pinxing.ts --hosted     # Wails3 版的前端
+ */
+const HOSTED = process.argv.includes("--hosted");
+const OUT_PATH = HOSTED
+  ? resolve(ROOT, "pinxing-app/frontend/index.html")
+  : OUT;
+
 /* 頁面程式碼放在 tools/pinxing-page.js —— **不要**搬回樣板字串（見該檔開頭）。 */
 const PAGE_JS = readFileSync(resolve(ROOT, "tools/pinxing-page.js"), "utf8")
   /* **用 replaceAll**：字串版 replace 只換第一個，而檔案開頭的說明也提到這個記號，
      base64 會整包塞進註解、真正的變數反而沒換到（施工單 §9 第 2 條）。 */
-  .replaceAll("__LIB_B64__", libB64)
+  /* ⚠ 宿主模式下換成**空字串**：`loadLibBytes()` 會改走 `window.__LIB_URL__`。
+     留著 3.1 MB 的 base64 就等於白花（前端本來就只有幾百 KB）。 */
+  .replaceAll("__LIB_B64__", HOSTED ? "" : libB64)
   /* 部件形式群（`_FORMGROUPS_` 佔位）：**建議更好的基字**要用（第 111 輪）✓ */
   .replaceAll("__FORM_GROUPS__", formGroupsJson)
   /* ★ 師父第 127 輪：庫存那兩個合文的按鈕**用他給的原圖**（`xue.png`／`elements.png` ✓）——
@@ -29,6 +50,50 @@ const PAGE_JS = readFileSync(resolve(ROOT, "tools/pinxing-page.js"), "utf8")
   .replaceAll("__IMG_ELEMENTS_B64__", readFileSync(resolve(ROOT, "elements.png")).toString("base64"));
 
 const COMMON_SCRIPT = commonScript();
+
+/* ★ 宿主模式的前導 script（**只存在於宿主模式** ✓，離線單頁不會有 ✓）。
+ *
+ *   ① 告訴 `loadLibBytes()` 去哪裡拿字庫（Go 那邊的 `/lib.bin`）。
+ *   ② 真的解開字庫之後**回報 Go 一聲** ✓——這樣驗收**不必看畫面**：
+ *      exe 的日誌會多一行「[頁面] 已就緒 …」，一眼就知道前端解到幾個字。
+ *      沒回報就是沒解開；那比「視窗開起來了但裡面是空的」好查太多了。
+ *   ⚠ 這一段刻意放在**頁面程式碼之前**的獨立 script：`__LIB_URL__` 必須在
+ *      `loadLibBytes()` 被呼叫之前就設好 ✓。 */
+const HOSTED_PRELUDE = HOSTED
+  ? `
+<!-- ============ 宿主模式（Wails3）：字庫由 /lib.bin 一次 fetch ============ -->
+<script>
+  window.__LIB_URL__ = "/lib.bin";
+  (function () {
+    var waited = 0;
+    var t = setInterval(function () {
+      if (window.__READY__) {
+        clearInterval(t);
+        var r = window.__READY__;
+        try {
+          fetch("/__ready", {
+            method: "POST",
+            body: r.glyphs + " 字 / " + r.families + " 家族 / 解碼 " + r.decodeMs + " ms"
+          });
+        } catch (e) { /* 回報失敗不影響頁面 */ }
+      } else if (++waited > 300) {
+        clearInterval(t);   /* 60 秒就放棄（畫面上有開頁看門狗會處理 ✓） */
+      }
+    }, 200);
+  })();
+</script>
+`
+  : "";
+
+/* 開發記錄的連結指向同資料夾的 `gouxingji.html`——宿主模式沒有那個檔，
+   留著會變成 404 ✗，所以那一行只在離線單頁出現 ✓。 */
+const DEV_LINK = HOSTED ? "" : `
+    <span class="devlink">　·　<a href="gouxingji.html">開發記錄</a></span>`;
+
+/* 「微信打開看不到」那一句是給離線單頁的客人看的 ✓；桌面視窗裡沒有意義 ✗。 */
+const WECHAT_LINE = HOSTED ? "" : `
+  <!-- ★ 師父 2026-10-16 指定的保險（微信內建瀏覽器）：放在**最底部的一行** ✓。 -->
+  <p class="wechat">微信打開看不到的話，用系統自帶的瀏覽器打開。</p>`;
 
 const html = `<!DOCTYPE html>
 <html lang="zh-Hant">
@@ -496,16 +561,13 @@ const html = `<!DOCTYPE html>
          （見 pinxing-page.js 的「PATENT_LINE」✓，字一字不改 ✓）；
          這裡只留「基於開源字庫」與微信 ✓（句子接得順，不留孤零零的標點 ✓）。 -->
   <footer class="credits">
-    基於開源字庫 Glyphwiki+Kage　·　微信：wxx68174671
-    <!-- ★ 師父 2026-10-15：加上**開發記錄**（同一個資料夾的 gouxingji.html ✓） -->
-    <span class="devlink">　·　<a href="gouxingji.html">開發記錄</a></span>
+    基於開源字庫 Glyphwiki+Kage　·　微信：wxx68174671${DEV_LINK}
   </footer>
-
-  <!-- ★ 師父 2026-10-16 指定的保險（微信內建瀏覽器）：放在**最底部的一行** ✓。 -->
-  <p class="wechat">微信打開看不到的話，用系統自帶的瀏覽器打開。</p>
+${WECHAT_LINE}
 
 </div>
 
+${HOSTED_PRELUDE}
 <script>
 ${COMMON_SCRIPT}
 /* ============ 兩頁共用的頁面端程式碼（tools/glyph-common-page.js） ============ */
@@ -541,13 +603,15 @@ ${PAGE_JS}
 </html>
 `;
 
-mkdirSync(dirname(OUT), { recursive: true });
+mkdirSync(dirname(OUT_PATH), { recursive: true });
 assertPageScript(html);
-writeFileSync(OUT, html);
-console.log(`已寫出 ${OUT}`);
+writeFileSync(OUT_PATH, html);
+console.log(`已寫出 ${OUT_PATH}` + (HOSTED ? "（宿主模式：字庫走 /lib.bin）" : "（離線單頁：字庫內嵌）"));
 console.log(`  ✓ 產出頁面的 script 語法正確`);
 console.log(`  網頁大小 ${(Buffer.byteLength(html) / 1048576).toFixed(2)} MB`);
 console.log(`  內嵌：kage-engine ${(Buffer.byteLength(engineSrc) / 1024).toFixed(0)} KB、` +
   `tools 模組 ${(Buffer.byteLength(bundleSrc) / 1024).toFixed(1)} KB、` +
-  `字形庫 base64 ${(libB64.length / 1048576).toFixed(2)} MB`);
+  (HOSTED
+    ? `字形庫 **不內嵌**（改由 /lib.bin 一次 fetch，4.49 MB）`
+    : `字形庫 base64 ${(libB64.length / 1048576).toFixed(2)} MB`));
 

@@ -2913,6 +2913,33 @@ function compKidsByName(gi) {
 function gunzip(raw) { return gunzipBytes(raw); }
 function b64ToBytes(s) { return Uint8Array.from(atob(s), function (c) { return c.charCodeAt(0); }); }
 
+/** 字庫位元組的**唯一**取得路徑。兩種來源，同一份頁面程式碼：
+ *
+ *   * **宿主模式**（Wails3 版）：`window.__LIB_URL__` 有設 → 一次 `fetch` 拿整包位元組。
+ *     那條路徑刻意不經 base64——省下頁面裡 3.1 MB 的膨脹（見 pinxing-app/README.md）。
+ *   * **離線單頁**（out/pinxing.html）：沒設 → 用內嵌的 base64 解壓。
+ *     那 3.1 MB 是為了 `file://` 直接開、以及在微信內建瀏覽器裡也能跑。
+ *
+ * ⚠ 宿主模式下 `LIB_B64` 是**空字串**，所以**不可以**無條件先解 base64 ✗——
+ *   那會在 `atob("")` 之後拿到 0 bytes，症狀是「字庫裡 0 個字」而不是丟錯，
+ *   非常難查（見 pinxing-app 的 README「字庫怎麼進到 JS」）。
+ *
+ * ⚠ 這裡**不**自己加 cache 參數：要不要快取由伺服端決定
+ *   （`pinxing-app` 的 `/lib.bin` 送 `no-store`——那份位元組在 exe 裡，
+ *   重讀只是讀記憶體，不值得為了快取而冒「重建字庫後拿到舊的」的風險）。
+ */
+function loadLibBytes() {
+  if (typeof window.__LIB_URL__ === "string" && window.__LIB_URL__) {
+    return fetch(window.__LIB_URL__)
+      .then(function (r) {
+        if (!r.ok) throw new Error("字庫下載失敗：HTTP " + r.status + "（" + window.__LIB_URL__ + "）");
+        return r.arrayBuffer();
+      })
+      .then(function (ab) { return new Uint8Array(ab); });
+  }
+  return gunzip(b64ToBytes(LIB_B64));
+}
+
 /** `?baseglyph=U+xxxx`（從字集瀏覽頁帶基字進來）。前綴與大小寫都要容錯。
  *
  *  **要先把 `location.search` 解碼，而且要解到沒有百分號編碼為止**：
@@ -2936,7 +2963,7 @@ function cpFromQuery() {
 
 var t0 = performance.now();
 
-gunzip(b64ToBytes(LIB_B64))
+loadLibBytes()
   .then(function (bin) {
     LIB = decodeLibrary(bin);
     var decodeMs = Math.round(performance.now() - t0);

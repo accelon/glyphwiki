@@ -1,0 +1,25 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0404": {
+			"ProductVersion": "0.1.0",
+			"FileVersion": "0.1.0",
+			"CompanyName": "glyphwiki",
+			"FileDescription": "剎那拼形 — 拼形檢視器（Go／Wails3 版）",
+			"LegalCopyright": "© 2026, glyphwiki",
+			"ProductName": "剎那拼形",
+			"Comments": "以字形庫為基礎的部件拼接；字庫內嵌，單一 exe、零外部相依"
+		},
+		"0409": {
+			"ProductVersion": "0.1.0",
+			"FileVersion": "0.1.0",
+			"CompanyName": "glyphwiki",
+			"FileDescription": "Setsuna Pinxing - component-composition glyph viewer (Go/Wails3)",
+			"LegalCopyright": "(c) 2026, glyphwiki",
+			"ProductName": "Setsuna Pinxing",
+			"Comments": "Component-composition viewer over an embedded glyph library; single exe, zero external dependencies"
+		}
+	}
+}

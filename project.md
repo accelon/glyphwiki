@@ -420,7 +420,9 @@ bun run tools/build-library.ts --range 0x3400 0xFAFF          # 舊版單一區�
 | `unicode-cjk-ids/` | IDS 結構來源（`All.txt` ＋ 10 個分區塊 txt）。是 [chise/ids] 的備份修補版，本身就是一個 git repo |
 | `kage-engine/` | 渲染引擎（原 JS 實作，8 個 `.js`）。**外部相依，不要改**；是 git repo |
 | `vendor-cm/` | CodeMirror 6 的下載與打包（`src/entry.ts` → `dist/cm6.global.js`）。**不入版控** |
-| `gokage/` | KAGE 的 Go 移植實驗（骨架模式）。**已放棄**（見 `progress/技術交接文件.md` §10.2） |
+| `gokage/` | KAGE 的 Go 移植實驗（骨架模式）。**全量移植暫緩**（效能理由仍成立；打包需求改走「Go 做資料＋語意、繪圖留前端 kage」，見 `progress/技術交接文件.md` §10.2） |
+| `gocore/` | **Go 模組**：字庫解碼／查詢（`lib/`），往後是組字語意。給**其他 Wails3 軟件**用的可重用能力。驗收＝對 JS 的**全庫差分測試**（見 `gocore/README.md`） |
+| `pinxing-app/` | **拼形檢視器的 Wails3 版**：單一 exe、零外部相依、字庫 `go:embed` ＋ 開檔一次交付給前端。`gocore` 的測試床（見 `pinxing-app/README.md`） |
 | `nul` | 不是檔案——那是 Windows 的 NUL 裝置，被 `Get-ChildItem` 列出來而已 |
 
 ---
