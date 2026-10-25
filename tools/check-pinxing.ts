@@ -12,6 +12,7 @@
 import { readFileSync, existsSync, writeFileSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
+import { readTourData } from "./tour/embed.ts";
 
 const D = "D:/2023/glyphwiki";
 const PAGE = resolve(D, "out/pinxing.html");
@@ -228,6 +229,50 @@ html.includes("微信打開看不到的話，用系統自帶的瀏覽器打開")
     rowsA.length > 100 && rowsA === rowsB
       ? ok(`檢字運算子的說明在兩頁也是**逐字同一份**（${rowsA.split("\n").length} 行 ✓）`)
       : bad(`兩頁的運算子說明不一致（本頁 ${rowsA.length} 字、另一頁 ${rowsB.length} 字）`);
+  }
+}
+
+// ---------------------------------------------------------------- 3.5 操作導覽（靜態）
+console.log("\n3.5 操作導覽：入口、外殼、劇本資料");
+{
+  /* 入口：**看得見、而且說人話** ✓（skill 的硬規則：入口不可以藏起來 ✗） */
+  /* 入口＝**圖示鈕**：icon-only 的介面用 🦮（導盲犬）、放在**存檔旁邊** ✓
+     （skill 第 9 步的規則 ✓）——emoji 沒有文字，所以 `aria-label` 與 `title` 兩個都要有 ✓。 */
+  const entry = /<button id="tourEntry"[\s\S]{0,220}?aria-label="操作導覽"[^>]*>🦮<\/button>/.exec(html);
+  entry
+    ? ok("有 🦮 入口（icon-only 的介面用導盲犬 ✓、aria-label 是「操作導覽」✓）")
+    : bad("找不到 #tourEntry 的 🦮 按鈕（或它少了 aria-label=\"操作導覽\"）");
+  /<button id="tourEntry"[\s\S]{0,220}?title="操作導覽/.test(html)
+    ? ok("🦮 有 hover 說明（title ✓）——emoji 鈕不靠文字也要講得清楚 ✓")
+    : bad("🦮 沒有 title（滑鼠移上去只看到一隻狗 ✗）");
+  /* 外殼：播放器只用 id 找元素，少一個就是「一開就壞」✗ */
+  const shellIds = ["tourSpot", "tourBubble", "tourWhere", "tourTitle", "tourText", "tourNote",
+    "tourProg", "tourNext", "tourPrev", "tourReplay", "tourDone", "tourSkip", "tourX",
+    "tourBackdrop", "tourBox", "tourList", "tourClose"];
+  const missing = shellIds.filter((id) => !html.includes('id="' + id + '"'));
+  missing.length === 0
+    ? ok(`導覽外殼的 ${shellIds.length} 個 id 都在（播放器只用 id 找元素 ✓）`)
+    : bad(`導覽外殼少了 ${missing.join("、")}——播放器會找不到`);
+  /#tourSpot \{[\s\S]{0,200}position: fixed/.test(html) && /#tourBubble \{[\s\S]{0,200}position: fixed/.test(html)
+    ? ok("聚光燈與氣泡都是 fixed 定位（跟著視窗，不受 460px 版面影響 ✓）")
+    : bad("聚光燈／氣泡的 CSS 不見了");
+  /* 劇本資料：**有編進去、而且是現在的劇本**（編譯期已擋錯，這裡擋「忘了重建」✗） */
+  const data = readTourData(html);
+  if (!data) {
+    bad("頁面裡找不到內嵌的導覽劇本（TOUR_INDEX／TOUR_BLOBS）——先跑 build-pinxing.ts");
+  } else {
+    let index: { id: string; title: string; scenes: number; steps: number }[] = [];
+    try { index = JSON.parse(data.index); } catch { /* 下面會報 */ }
+    index.length === 2 && index[0]?.id === "welcome"
+      ? ok(`內嵌 ${index.length} 份劇本：` +
+          index.map((t) => `「${t.title}」${t.scenes} 場景/${t.steps} 步`).join("、") +
+          "（第一份＝welcome ✓）")
+      : bad(`劇本清單不對（應該是 2 份、welcome 排第一）：${index.map((t) => t.id).join(",") || data.index.slice(0, 80)}`);
+    Object.keys(JSON.parse(data.blobs || "{}")).length === index.length && index.length > 0
+      ? ok("每一份劇本都有對應的巨集（base64）")
+      : bad("劇本清單與巨集對不上");
+    /SelfTour/.test(script) ? ok("播放器（tools/tour/player.js）有內嵌進頁面 ✓")
+                           : bad("找不到播放器（window.SelfTour）");
   }
 }
 
@@ -2424,6 +2469,270 @@ if (!existsSync(EDGE)) {
         : bad(`?baseglyph= 入口失效：baseglyph=${bg} seq=${sq} paths=${pa}`);
     }
     try { unlinkSync(diag2); } catch {}
+  }
+
+  /* ---- 操作導覽（2026-10-25）：**整份劇本真的在瀏覽器裡跑一遍** ----
+   *
+   * 為什麼要跑整份：劇本與頁面是兩個檔（`.tour` 與 `pinxing-page.js`），
+   * 中間只有「選擇器」這條繩子。編譯期擋得住「#id 不存在」，擋不住
+   * 「元素存在但**在那一刻看不到**」（收起來的卡片、還沒畫出來的候選列 ✓）——
+   * 那一種只有真的播一次才會現形 ✓（症狀是客人看到「⚠ 找不到」，最丟臉的一種）。
+   *
+   * 這一支探針做的事：按入口 → 選單 → 播完 welcome → 逐項檢查
+   *   ① 每一場景都到了（6/6）、`failed` 是空的
+   *   ② 聚光燈真的**罩在目標上**（`spot.overlapTarget`；允許一次重測，見下面）
+   *   ③ 氣泡**不蓋住小目標**（大目標如整個庫存區蓋到是正常的 ✓）
+   *   ④ 結束時**把導覽前的樣子還原**（輸入區、字框、中間部件、筆畫粗細）
+   *   ⑤ 進度寫進 localStorage（關掉再開會接上次 ✓）
+   *   ⑥ Esc 收得掉，而且不會把 Esc 吃掉第二次（導覽已經停了，頁面自己的 Esc 要能動 ✓）
+   */
+  {
+    const tourPath = resolve(D, "out/_pinxing-tour.html");
+    const tourProbe = `
+<script>
+window.__SYNC__ = true;   /* 驗收要立刻讀 #big 的最終 DOM（見 pinxing-page.js 的 __SYNC__ ✓） */
+(function () {
+  function esc(s) { return encodeURIComponent(String(s)); }
+  var log = [], pointed = 0, overlapBad = 0, bubbleHits = 0, escTest = "";
+  var maxScene = -1, curScenes = 0, curName = "", tourIx = 0, scenesSeen = 0, failedTotal = 0;
+  var restoredKeep = "", failResult = "";
+  var tourResults = [], ticks = 0, tries = 0;
+  function S() { return window.SelfTour ? window.SelfTour.state() : null; }
+  function report(tag, extra) {
+    document.title = "TOUR|" + tag +
+      "|tours=" + esc(tourResults.join(";")) +
+      "|scenes=" + scenesSeen + "|failed=" + failedTotal +
+      "|pointed=" + pointed + "|overlapBad=" + overlapBad + "|bubbleHits=" + bubbleHits +
+      "|restored=" + esc(extra) +
+      "|ls=" + esc(localStorage.getItem("pinxing.tour.welcome") || "") +
+      "|esc=" + esc(escTest) + "|fail=" + esc(failResult) + "|log=" + esc(log.join(","));
+  }
+  function setPre() {
+    if (document.getElementById("boxMode").getAttribute("data-mode") === "none") {
+      document.getElementById("boxMode").click();
+    }
+    var mid = document.getElementById("showMid");
+    if (!mid.checked) { mid.checked = true; mid.dispatchEvent(new Event("change")); }
+    var w = document.getElementById("wscale");
+    w.value = "150"; w.dispatchEvent(new Event("input"));
+  }
+  var boot = setInterval(function () {
+    if (window.__READY__ && window.SelfTour) { clearInterval(boot); start(); }
+    else if (++tries > 400) { clearInterval(boot); report("boot-timeout", "-"); }
+  }, 100);
+  function start() {
+    var entry = document.getElementById("tourEntry");
+    log.push("entry=" + entry.textContent + "/" + getComputedStyle(entry).display +
+      "/prev=" + (entry.previousElementSibling ? entry.previousElementSibling.id : "none") +
+      "/aria=" + (entry.getAttribute("aria-label") || ""));
+    setPre();
+    entry.click();
+    setTimeout(function () {
+      var box = document.getElementById("tourBox");
+      log.push("menu=" + (box.hidden ? "hidden" : "shown") +
+        "/" + document.querySelectorAll("#tourList .tourRow").length);
+      var first = document.querySelector("#tourList .tourRow .tourName");
+      log.push("first=" + (first ? first.textContent : "MISSING"));
+      playTour(0);
+    }, 200);
+  }
+  function playTour(i) {
+    tourIx = i; maxScene = -1; ticks = 0;
+    window.SelfTour.start();
+    setTimeout(function () {
+      var rows = document.querySelectorAll("#tourList .tourRow");
+      if (i >= rows.length) return afterAll();
+      var nm = rows[i].querySelector(".tourName");
+      curName = nm ? nm.textContent : "?";
+      log.push("play" + (i + 1) + "=" + curName);
+      var b = rows[i].querySelector("[data-play]");
+      if (!b) return report("no-play-button", "-");
+      b.click();
+      setTimeout(drive, 120);
+    }, 200);
+  }
+  function drive() {
+    var s = S();
+    if (!s) return report("no-state", "-");
+    if (s.failed.length) {
+      failedTotal += s.failed.length;
+      log.push("FAILED=" + JSON.stringify(s.failed[0]));
+      return report("failed", "-");
+    }
+    curScenes = s.scenes;
+    /* ⚠ 播完之後 scene 會等於 scenes（＝結束畫面 ✓）——那不是一個場景 ✗ */
+    if (s.scene > maxScene && s.scene < s.scenes) {
+      maxScene = s.scene;
+      scenesSeen++;
+      log.push("s" + tourIx + "-" + (s.scene + 1) + "=" + s.bubble.title + "/" + s.bubble.buttons.join("+"));
+    }
+    if (s.point) {
+      pointed++;
+      var hit = s.spot.visible && !s.spot.overlapTarget;
+      if (hit) {
+        /* 狀態快照的矩形是**四捨五入過的**，而且聚光燈每一幀才重算一次 ✓：
+           這裡用原始 getBoundingClientRect 再判一次，而且**留 24px 的餘裕** ✓——
+           ① 目標剛剛收起來（例：點了 🪄 之後輸入區一換、那顆鈕就不見了）：
+              面積 0 → 下一幀聚光燈就收掉，不算失敗 ✓
+           ② 目標剛移動（清單重畫、字級改變）：差幾 px 是同一格的抖動，不算失敗 ✓
+           真正的「指錯東西」差的是幾百 px，這一條還是抓得到 ✓。 */
+        var pt = s.point, t2 = document.querySelector(pt);
+        var tr = t2 ? t2.getBoundingClientRect() : null;
+        var sp = s.spot.rect;
+        if (!sp) { overlapBad++; log.push("NOOVERLAP-norect:" + pt); }
+        else if (!tr || tr.width === 0 || tr.height === 0) {
+          /* 目標剛消失 → 不算失敗（見上面 ①） */
+        } else {
+          var gapX = Math.max(0, sp.x - tr.right, tr.left - (sp.x + sp.w));
+          var gapY = Math.max(0, sp.y - tr.bottom, tr.top - (sp.y + sp.h));
+          if (gapX > 24 || gapY > 24) {
+            overlapBad++;
+            log.push("NOOVERLAP:" + pt + " gap=" + Math.round(gapX) + "x" + Math.round(gapY));
+          }
+        }
+      }
+      /* 氣泡蓋住小目標？只有小目標才算失敗（整個庫存區那種大目標蓋到是正常的 ✓） */
+      var el2 = document.querySelector(s.point);
+      if (el2 && s.bubble.rect) {
+        var r2 = el2.getBoundingClientRect(), br = s.bubble.rect;
+        var small = r2.width * r2.height <= 14000;
+        var shares = !(br.x + br.w < r2.left || br.x > r2.right || br.y + br.h < r2.top || br.y > r2.bottom);
+        if (small && shares) {
+          bubbleHits++;
+          log.push("BUBBLEHIT:" + s.point + " " + Math.round(r2.width) + "x" + Math.round(r2.height));
+        }
+      }
+    }
+    if (s.phase === "done") {
+      tourResults.push(curName + "=" + (maxScene + 1) + "/" + s.scenes);
+      return playTour(tourIx + 1);
+    }
+    if (s.waitKind === "tap") document.body.click();
+    else if (s.waitKind === "next") document.getElementById("tourNext").click();
+    else if (s.waitKind === "pause") { log.push("PAUSED=" + s.note); return report("paused", "-"); }
+    if (++ticks > 1200) {
+      log.push("STUCK=" + JSON.stringify({ scene: s.scene, step: s.step, wait: s.waitKind, note: s.note }));
+      return report("stuck", "-");
+    }
+    setTimeout(drive, 100);
+  }
+  function afterAll() {
+    restoredKeep = (document.getElementById("seq").value === "" ? "seq=empty"
+      : "seq=" + document.getElementById("seq").value) +
+      ",box=" + document.getElementById("boxMode").getAttribute("data-mode") +
+      ",mid=" + document.getElementById("showMid").checked +
+      ",w=" + document.getElementById("wscale").value;
+    /* ⑥ 再開一次 → Esc 應該收掉導覽；收掉之後 Esc 要回到頁面手上 */
+    window.SelfTour.start();
+    setTimeout(function () {
+      var rows = document.querySelectorAll("#tourList .tourRow");
+      if (rows.length) rows[0].querySelector("[data-play]").click();
+      setTimeout(function () {
+        escTest = "running=" + (S().bubble.visible ? "1" : "0");
+        /* ⚠ 要派在 **document** 上 ✓：派在 window 上的事件不會往下傳到 document 的監聽器 ✗
+           （導覽的監聽器在 window 的 capture 階段，兩者都收得到 ✓）。 */
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+        setTimeout(function () {
+          escTest += ",after=" + (S().bubble.visible ? "shown" : "hidden") + ",phase=" + S().phase;
+          document.getElementById("seq").value = "邏";
+          document.getElementById("seq").dispatchEvent(new Event("input"));
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+          escTest += ",pageEsc=" + (document.getElementById("seq").value === "" ? "ok" : "blocked");
+          startFailPath();
+        }, 150);
+      }, 700);
+    }, 250);
+  }
+  /* ⑦ **失敗那條路**：把庫存整塊藏起來 → 「點庫存那一下」一定找不到 →
+     要停在 pause、而且「略過這步」要看得見、按了要能繼續 ✓（那是客人唯一的出路 ✓）。 */
+  function startFailPath() {
+    document.getElementById("stock").style.display = "none";
+    window.SelfTour.play("welcome", 4);
+    failPath(0);
+  }
+  function failPath(n) {
+    var s = S();
+    if (!s) { failResult = "bad:no-state"; return report("ok", restoredKeep); }
+    if (s.waitKind === "pause") {
+      var skip = document.getElementById("tourSkip");
+      failResult = (skip && skip.hidden === false ? "ok:" : "bad-no-skip:") + s.note.slice(0, 18);
+      if (skip) skip.click();
+      setTimeout(function () {
+        window.SelfTour.stop();
+        document.getElementById("stock").style.display = "";
+        report("ok", restoredKeep);
+      }, 300);
+      return;
+    }
+    if (s.waitKind === "tap") document.body.click();
+    if (n > 80) { failResult = "bad:timeout " + s.waitKind; window.SelfTour.stop(); return report("ok", restoredKeep); }
+    setTimeout(function () { failPath(n + 1); }, 100);
+  }})();
+<\/script>`;
+    writeFileSync(tourPath, html.replace("</body>", tourProbe + "</body>"));
+    const tourProfile = mkdtempSync(join(tmpdir(), "pinxing-tour-"));
+    const procT = Bun.spawnSync([
+      EDGE, "--headless=new", "--disable-gpu", "--user-data-dir=" + tourProfile,
+      "--virtual-time-budget=180000", "--window-size=460,1400",
+      "--dump-dom", "file:///" + tourPath.replace(/\\/g, "/"),
+    ], { stdout: "pipe", stderr: "ignore" });
+    const domT = new TextDecoder().decode(procT.stdout);
+    const mT = /<title>TOUR\|([^<]*)<\/title>/.exec(domT);
+    if (!mT) bad("操作導覽的探針沒有回報");
+    else {
+      const t = mT[1]!;
+      const [tag = "", ...rest] = t.split("|");
+      const f: Record<string, string> = {};
+      for (const kv of rest) {
+        const i = kv.indexOf("=");
+        if (i > 0) f[kv.slice(0, i)] = kv.slice(i + 1);
+      }
+      const dec = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+      const logStr = dec(f.log ?? "");
+      const tours = dec(f.tours ?? "");
+      if (tag !== "ok") {
+        bad(`導覽沒有播完（${tag}）：${logStr.slice(0, 400)}`);
+      } else {
+        const scenes = Number(f.scenes ?? "0");
+        tours === "第一次使用=6/6;進階：部件檢字=3/3" && f.failed === "0" && scenes === 9
+          ? ok(`兩份劇本都播完（${tours}）、共 ${scenes} 個場景、每一步都成功（failed=0 ✓）`)
+          : bad(`劇本沒有播完：tours=${tours} scenes=${scenes} failed=${f.failed}｜${logStr.slice(0, 300)}`);
+        /entry=🦮\/flex\/prev=saveSeq\/aria=操作導覽/.test(logStr)
+          ? ok("🦮 就位：`#saveSeq` 的**下一個兄弟**、display=flex、aria-label 有名字 ✓（存檔旁邊 ✓）")
+          : bad(`🦮 的位置或名字不對（應在 #saveSeq 之後、display=flex）：${logStr.slice(0, 160)}`);
+        /menu=shown\/2/.test(logStr) && /first=第一次使用/.test(logStr)
+          ? ok(`入口按下去會開選單（2 份劇本 ✓）：第一列是「第一次使用」✓（順序是給人看的，不是檔名序 ✓）`)
+          : bad(`選單不對：${logStr.slice(0, 200)}`);
+        Number(f.overlapBad ?? "1") === 0 && Number(f.pointed ?? "0") >= 15
+          ? ok(`聚光燈每次都罩在目標上（${f.pointed} 次取樣，overlapBad=0 ✓）`)
+          : bad(`聚光燈有 ${f.overlapBad} 次沒罩到目標（取樣 ${f.pointed} 次）：` +
+                logStr.split(",").filter((x) => /NOOVERLAP/.test(x)).slice(0, 4).join(" "));
+        Number(f.bubbleHits ?? "1") === 0
+          ? ok("氣泡沒有蓋住小目標（大目標如整個庫存區蓋到是正常的 ✓）")
+          : bad(`氣泡蓋住了小目標 ${f.bubbleHits} 次：` +
+                logStr.split(",").filter((x) => /BUBBLEHIT/.test(x)).slice(0, 4).join(" "));
+        /^seq=empty,box=show,mid=true,w=150$/.test(dec(f.restored ?? ""))
+          ? ok("導覽結束**還原成開始前的樣子**（輸入區清空 ✓、字框顯 ✓、中間部件 ✓、筆畫 150% ✓）")
+          : bad(`導覽結束沒有還原（應為 seq=empty,box=show,mid=true,w=150）：${dec(f.restored ?? "")}`);
+        Number(f.ls ?? "0") >= 5
+          ? ok(`進度寫進 localStorage（pinxing.tour.welcome=${f.ls} ✓——關掉再開會接上次 ✓）`)
+          : bad(`沒有記錄導覽進度：ls=${f.ls}`);
+        /running=1,after=hidden,phase=idle,pageEsc=ok/.test(dec(f.esc ?? ""))
+          ? ok("Esc 收得掉導覽（phase=idle ✓），收掉之後 Esc 回到頁面手上（頁面的清空照常 ✓）")
+          : bad(`Esc 的行為不對：${dec(f.esc ?? "")}`);
+        /* ⑦ 失敗那條路：找不到目標 → pause ＋「略過這步」，按了要能繼續 ✓ */
+        const failTxt = dec(f.fail ?? "");
+        /^ok:/.test(failTxt)
+          ? ok(`找不到目標時**停在原地**並給「略過這步」（${failTxt.replace(/^ok:/, "")}…✓）——不是整場卡死 ✓`)
+          : bad(`失敗那條路不對（應該 pause ＋ 看得到「略過這步」）：${failTxt}`);
+        /* 場景標題要一列一列出現（不是只有數字在跑 ✓）——`s<劇本>-<場景>=標題` */
+        const sceneLines = logStr.split(",").filter((x) => /^s\d+-\d+=/.test(x));
+        sceneLines.length === 9
+          ? ok(`九個場景的標題都出現過（${sceneLines.map((x) => x.replace(/^s\d+-\d+=/, "")).join(" → ")} ✓）`)
+          : bad(`只有 ${sceneLines.length} 個場景被觀察到：${sceneLines.join(",")}`);
+      }
+    }    try { rmSync(tourProfile, { recursive: true, force: true }); } catch {}
+    try { if (process.env.PINXING_KEEP !== "1") unlinkSync(tourPath); } catch {}
   }
 }
 

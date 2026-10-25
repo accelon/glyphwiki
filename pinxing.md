@@ -1125,3 +1125,145 @@ v2 字庫（`out/lib-cjk.bin.gz`，測試用）沒有 IDS 區段 → 這條路�
 
 12. 新增 `check-pinxing.ts`（headless 探針）。
 13. **依本檔第 7 條的「招財進寶」動線逐步模擬使用者**，把拼形流程跑順——這是規格明寫的要求。
+
+## 魔術棒過場（2026-10-23）
+
+`pinxing-page.js`：按 🪄（或點推薦文字）套用拼形序時，大字不再瞬間跳過去——
+用 rAF 演約 1.2 秒的「醜 → 美」。
+
+* **粒度＝部件**：把舊形／新形拆成「一次引用」的完整多邊形（`morphUnitsOf`）；
+  再用**包含關係**把「一個包住另一個」的葉併成同一個部件（`morphComponents`）——
+  `𦥯` 的外框與裡面的 `臼` 必須一起動，分開內插會在接縫出現碎片 ✗。
+  `⿳𦥯⿰女孔皿` 這一題就是這樣修好的。
+* 配對：先同「碼位多重集」（含異體）、再按距離／面積貪婪（`morphMatch`）。
+* **單一部件**：同拓撲、正規化最大點距 ≤ 0.24、同繞向 → 逐點內插（`morphCanPoint`）；
+  形狀差太多（例 木/火的異體）→ 只做仿射。
+* **複合部件**：整組只做**墨跡框仿射**（不逐點內插、不全程淡化）——內部接縫不會破。
+* 形狀不同時：新形畫在**下面**、舊形在上面；舊形在最後 10%（單一部件 3%）淡出＝把新形「揭」出來 ✓。
+  兩份都是完整多邊形；新形不透明，所以不會出現 50% 的灰影 ✓。
+* 群組 `opacity` 是整組先合成再淡（不是逐 path 淡）→ 重疊筆畫不會露接縫。
+* 失敗（結構不認得、點數不齊）就安靜地不播；`window.__SYNC__`（驗收探針）不播，
+  既有 `check-pinxing.ts` 的 DOM 斷言不變。建議格與魔杖共用 `applySeqWithMorph()`。
+* 打字／換字／改框／改粗細 → `render()` 一進來就 `cancelMorph(false)`，
+  rAF 看到 SVG 被換掉就停。
+
+## 操作導覽（2026-10-25）
+
+這一頁最難的不是按鈕，是**拼形怎麼讀**（基字 ＋ 要換掉的部件 ＋ 新部件）。
+客人從微信點進來、不會讀說明書，所以做一份**邊看邊做**的導覽：
+照著點一次就會用；同一份劇本也是示範腳本（簡報、錄螢幕都用它）。
+
+模組來自 [`agent-norms/self-explaining-tour`](../../2026/agent-norms/self-explaining-tour/README.md)
+（可攜的 `.tour` 劇本 → 巨集 → 播放器；與 `skills/self-explaining-tour` 的規則同一套）。
+
+### 入口與兩份劇本
+
+* 入口＝**輸入區右邊、存檔旁邊的「🦮」**（`#tourEntry`，導盲犬 ✓；2026-10-25 師父指定的圖示）✓——
+  `title` 與 `aria-label` 都是「操作導覽」✓（emoji 鈕沒有文字，兩個都要有 ✓）。
+  不藏進設定裡 ✗、不用 ▶／🎬／? ✗（那些讀成「播放示範」「說明頁」，客人會跳過 ✓）。
+  第一次開頁（輸入區還空著、沒播過）會用浮層提一句「按輸入區右邊的 🦮 一分鐘走一遍」✓，
+  一打字就被 `render()` 收掉 ✓。
+  ★ 這條規則已回寫進 skill（`skills/self-explaining-tour/SKILL.md` 第 9 步與模組 README
+    的〈Entry point〉）：**icon-only 的介面用 🦮、緊接在主要動作（存檔）後面、`aria-label` ＋ `title`**
+    ✓——下一個專案不必再重新想一次 ✓。
+* **兩份劇本**（所以點入口會先開選單；只有一份時播放器會直接播 ✓）：
+
+| id | 標題 | 場景 | 講什麼 |
+| --- | --- | :---: | --- |
+| `welcome` | 第一次使用 | 6 | 這個畫面 → 打一個字 → 拼形序 → 部件檢字 → 庫存拼形（先醜後美）→ 都可以改 |
+| `find` | 進階：部件檢字 | 3 | `木/`（木在上）、`4木日`（扣掉木日剩 4 畫）、`口口`（重複）→ 連到字集瀏覽頁 |
+
+* 導覽**會把客人的畫面還原** ✓：入口按下去的那一刻記下輸入區、字框、中間部件、筆畫粗細
+  （`呼叫 mark`），最後一個場景 `呼叫 restore` 還原 ✓——導覽結束不可以把客人留在改過的狀態 ✗。
+
+### 檔案
+
+| 檔案 | 作用 |
+| --- | --- |
+| `tools/tour/format.ts` | 巨集格式（**vendored**，上游原封不動） |
+| `tools/tour/compiler.ts` | `.tour` 解析／靜態檢查／編碼（vendored，改了 3 處：`templateHtml`、`order`、`outFile` 選用） |
+| `tools/tour/player.js` | 頁面端播放器（**手寫 ES5**，掛 `window.SelfTour`；見檔頭為什麼不用 TS） |
+| `tools/tour/shell.html`／`tour.css` | 外殼 DOM 與樣式（聚光燈／氣泡／選單；配色照這一頁） |
+| `tools/tour/tours/*.tour` | 劇本（**要改導覽就改這裡** ✓） |
+| `tools/tour/tour.config.ts` | 白名單（`設定` 鍵、`呼叫` 函式、`api:` 鍵）＋ 選單順序 |
+| `tools/tour/build-tours.ts` | 編譯 ＋ `--check`（比對產出頁裡的內嵌資料） |
+| `tools/tour/embed.ts` | 「資料怎麼寫進頁面」的唯一定義（建置器與 `--check` 共用） |
+
+### 怎麼跑
+
+```powershell
+bun run tools/build-pinxing.ts                 # 編譯劇本 ＋ 產生 out/pinxing.html（導覽資料直接內嵌）
+bun run tools/build-pinxing.ts --hosted        # Wails 版（pinxing-app/frontend/index.html）——同一份頁面，導覽也在 ✓
+bun run tour                                   # 同上（package.json 的縮寫）：只編譯、印摘要
+bun run tour:check                             # 產出頁裡的資料是不是現在的劇本（verify 會跑 ✓）
+bun run tools/check-pinxing.ts                 # headless：整份劇本真的播一遍（見下）
+```
+
+`verify` 的步驟表多了 `check-tour`（`--check`）——**改了 `.tour` 卻忘了重建**會在建置期被擋下來 ✓。
+
+### 劇本怎麼寫（只列這一頁用到的）
+
+```markdown
+@id welcome
+@title 第一次使用
+@intro 一分鐘走一遍。
+
+### 場景標題
+說明文字（支援**粗體**與等寬），空行分段。
+
+> 呼叫 mark                 ← 記下導覽前的樣子
+> 指向 #big                 ← 聚光燈（選擇器就是 CSS ✓）
+> 停                        ← 等客人點一下畫面（介紹介面一律用這個，不要用「等」✗）
+> 輸入 #seq => 邏羅寶       ← 真的是派 input 事件（走頁面自己的那條路 ✓）
+> 等頁面 count:#cands .cell >= 1 10000   ← 等資料（最後的數字是逾時毫秒 ✓）
+> 不指向
+> 呼叫 restore
+```
+
+白名單（寫錯在**建置期**就失敗 ✓）：`設定 box|wscale|mid`、`呼叫 mark|restore`、
+`api: ready|seq|mode|box|mid|cands|chips|big|composed`。
+選擇器裡的 `#id` 會**逐個對照產出頁**——改名或打錯，`build-pinxing.ts` 當場失敗 ✗。
+
+### 三個刻意的決定（與上游 skill 不同的地方）
+
+1. **不落地 `tour-data.ts`** ✓：這一頁是單一檔案，資料一定要內嵌；再多一份中間檔只多一個
+   「改了劇本、中間檔沒更新、頁面還是舊的」的坑 ✗。所以編譯結果由建置器直接寫進頁面，
+   `--check` 再從**產出物**讀回來比對 ✓（比對產出物＝比對客人真正拿到的東西 ✓）。
+2. **播放器是手寫的 ES5 port** ✓（不是內嵌上游的 `player.ts`）：手寫的這一層
+   （`pinxing-page.js`／`glyph-common-page.js`）一律是 ES5 ✓，播放器要跟它一致；
+   而且產出頁是零相依的單一檔案，播放器必須看得懂、改得動 ✓。
+   ⚠ 誠實記一筆：內嵌的 `tools/*.ts`（Bun transpile）**已經**帶了箭頭函式與 async，
+   所以整頁並不是嚴格 ES5 ✓——這條守的是手寫層，不是整頁的保證。
+3. **入口是圖示鈕（🦮）而不是文字連結**（skill 建議 About／Help／空狀態）：這一頁沒有 About，
+   而輸入區那一列是客人一定會看到的地方 ✓；emoji 不佔一行字，窄螢幕上也放得下 ✓。
+   代價是「🦮 是什麼」要靠 `title`／`aria-label` 與第一次開頁的那句浮層 ✓。
+
+### 驗收（`check-pinxing.ts` 的 3.5 與最後一段）
+
+* 靜態：`🦮` 入口在（`aria-label`＋`title` 都有 ✓）、外殼 17 個 id 都在、聚光燈與氣泡是 `fixed`、
+  兩份劇本都內嵌且 welcome 排第一。
+* headless：`🦮` 的 `previousElementSibling` 就是 `#saveSeq`（存檔旁邊 ✓）→ 按下去 → 選單 →
+  **兩份劇本都播完**（6 ＋ 3 ＝ 9 個場景），逐項斷言
+  `failed.length === 0`、每個指到的目標 `spot.overlapTarget`、氣泡不蓋住**小**目標、
+  結束後四項狀態都還原、進度寫進 `pinxing.tour.welcome`、Esc 收得掉而且**收掉之後 Esc 回到頁面手上**。
+  ⚠ 一份劇本 12 次取樣、兩份 17 次——`overlapBad` 與 `bubbleHits` 都要求 **0** ✓
+  （聚光燈每一幀才重算一次，所以驗收會用**原始座標**再判一次、並留 24px 餘裕；
+  目標剛收起來（面積 0）不算失敗 ✓——不然「點了 🪄、那顆鈕就不見了」那一幀會讓驗收隨機紅 ✗）。
+* 最後一段故意**把庫存整塊藏起來**再播第五個場景：那一下「點庫存」一定找不到 ✓——
+  要停在原地（pause）、「略過這步」要看得見、按了要能繼續 ✓（客人唯一的出路 ✓）。
+
+### 踩過的坑（都很容易再踩一次）
+
+1. **播放器不可以放在頁面程式碼之前** ✗：`check-pinxing.ts` 會把主 script 的前半段抽出來
+   丟進 Node 端的 `new Function()`（那一段沒有 `window` ✓），播放器一開頭就是 `(…)(window)`
+   → 得到「window is not defined」✓（實測踩過）。現在放在 `pinxing-page.js` **之後** ✓。
+2. **樣板字串裡不可以有反引號** ✗——這次又踩了兩次（CSS 註解、劇本註解）。
+   `check-syntax.ts` 一秒就抓出來 ✓，但還是浪費了一輪。註解要引字請用「」✓。
+3. **選單順序不是檔名序** ✗：`find` 會排在 `welcome` 前面（`readdirSync().sort()` ✓），
+   所以 `tour.config.ts` 有 `order: ["welcome", "find"]` ✓——第一列就是客人最先點的那一份 ✓。
+4. **`restore` 要先有 `mark`** ✓：只寫 `呼叫 restore` 會什麼都沒做（而且不會報錯 ✗）。
+   現在入口按下去就 mark ✓，劇本的第一個場景也有一行當保險 ✓。
+5. **`停` 與 `等頁面` 不可混用** ✗：介紹介面用 `停`（等客人看完 ✓）、等資料用 `等頁面`
+   （輪詢條件 ✓）。用固定 `等 600` 等資料在慢機器上一定隨機失敗 ✓。
+6. **Esc 要派在 `document` 上** ✓：派在 `window` 上的事件不會往下傳到 document ✗
+   （驗收一開始就是這樣誤判成「頁面的 Esc 被吃掉了」✓）。

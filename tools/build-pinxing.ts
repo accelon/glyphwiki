@@ -13,6 +13,9 @@ import { dirname, resolve } from "node:path";
 import {
   ROOT, commonScript, commonPageJs, libB64, formGroupsJson, assertPageScript, engineSrc, bundleSrc,
 } from "./embed-common.ts";
+import { compileTours } from "./tour/compiler.ts";
+import { tourDataJs } from "./tour/embed.ts";
+import tourConfig from "./tour/tour.config.ts";
 
 const OUT = resolve(ROOT, "out/pinxing.html");
 
@@ -50,6 +53,28 @@ const PAGE_JS = readFileSync(resolve(ROOT, "tools/pinxing-page.js"), "utf8")
   .replaceAll("__IMG_ELEMENTS_B64__", readFileSync(resolve(ROOT, "elements.png")).toString("base64"));
 
 const COMMON_SCRIPT = commonScript();
+
+/* ==================== 操作導覽（2026-10-25）====================
+ *
+ * 三塊，全部從 `tools/tour/` 讀進來（**不要**搬進這裡的樣板字串 ✗）：
+ *
+ *   `tour.css`    外殼樣式   → 接在既有的 <style> 最後
+ *   `shell.html`  外殼 DOM   → 接在 .wrap 之後（聚光燈／氣泡／選單；都是 position:fixed）
+ *   `player.js`   播放器     → 接在頁面程式碼之前（純 ES5 ✓，見該檔檔頭）
+ *
+ * 劇本（`tools/tour/tours/*.tour`）由 `compileTours()` 編譯成巨集 ＋ base64，
+ * 以 `TOUR_INDEX`／`TOUR_BLOBS` 兩個全域內嵌（`tools/tour/embed.ts` 是寫法的唯一定義 ✓）。
+ *
+ * ⚠ 為什麼要**先組一份「沒有導覽資料」的頁面**：`compileTours()` 會拿 `templateHtml`
+ *   做 `#id` 的靜態檢查 ✓——劇本裡寫錯一個 id 要在**建置期**就擋下來，
+ *   不能等到客人面前才「⚠ 找不到」✗。而那一份的 id 必須跟真正產出的那一頁一樣，
+ *   所以先組 html0、拿它去編譯、再把資料換進去（資料本身不含 id ✓）。
+ */
+const TOUR_CSS = readFileSync(resolve(ROOT, "tools/tour/tour.css"), "utf8");
+const TOUR_SHELL = readFileSync(resolve(ROOT, "tools/tour/shell.html"), "utf8");
+const TOUR_PLAYER = readFileSync(resolve(ROOT, "tools/tour/player.js"), "utf8");
+/** 資料的插入點：先組一頁**沒有導覽資料**的（拿去做 #id 檢查），編譯完再把資料換進來 ✓ */
+const TOUR_SLOT = "/* _____TOUR_DATA_SLOT_____ */";
 
 /* ★ 宿主模式的前導 script（**只存在於宿主模式** ✓，離線單頁不會有 ✓）。
  *
@@ -173,8 +198,9 @@ const html = `<!DOCTYPE html>
   #saveSeq.del { color:#ff8a8a; }
   /* ★ 師父第 136 輪：**魔術棒 🪄**（有建議的拼形序時才出現 ✓）；
      ★ 師父 2026-10-16：**🧩「拆成 IDS」搬到同一列** ✓（「與魔杖放在同一位置，用 🧩 這個圖示」✓）。
-     ⚠ 兩顆都是 emoji 圖示鈕，字級要一起調 ✓（「.iconbtn」的 22px 那條是給 svg 的 ✗）。 */
-  #wand, #toIds { font-size:20px; line-height:1; }
+     ★ 2026-10-25：**操作導覽 🦮（導盲犬）**也在這一列、緊接在「存起來」後面 ✓（見下面 #tourEntry ✓）。
+     ⚠ 三顆都是 emoji 圖示鈕，字級要一起調 ✓（「.iconbtn」的 22px 那條是給 svg 的 ✗）。 */
+  #wand, #toIds, #tourEntry { font-size:20px; line-height:1; }
   /* ⚠ 作者樣式的 display 會蓋掉 [hidden] 的 display:none ✗（第 112 輪的教訓 ✓）——
      「.iconbtn」有「display:flex」，所以「[hidden]」單獨是**沒有用的** ✗。
      這兩條是「JS 還沒跑之前」的保險 ✓；跑起來之後由「showEl()」的行內 display 接手 ✓。 */
@@ -431,6 +457,8 @@ const html = `<!DOCTYPE html>
   /* 標籤一律用問號游標 ✓＝「這裡有說明可以滑」✓（每一種狀態都有 hover 說明 ✓：
      部件檢字＝運算子用法 ✓、其餘＝拼形序的專利依據 ✓）。 */
   #seqlbl { cursor:help; }
+
+${TOUR_CSS}
 </style>
 </head>
 <body>
@@ -468,6 +496,17 @@ const html = `<!DOCTYPE html>
           <path d="M10 10v6.5M14 10v6.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       </button>
+      <!-- ★ 2026-10-25：**操作導覽 🦮（導盲犬）** ✓——
+           位置＝**存檔旁邊**（師父指定的 ✓）：那一列本來就是客人一定會看的地方 ✓，
+           不必再用一個文字連結佔位置 ✓（窄螢幕上多一行字很貴 ✓）。
+           ⚠ 圖示鈕只寫 emoji ✗，所以 **title 與 aria-label 兩個都要有** ✓——
+             title 是滑鼠的說明、aria-label 是螢幕閱讀器的名字 ✓（skill 的規則：
+             icon-only 的入口用 🦮，緊接在主要動作（存檔）後面 ✓，見
+             d:\2026\agent-norms\skills\self-explaining-tour\SKILL.md 第 9 步 ✓）。
+           ⚠ 不可以用 ▶／🎬／? ✗——那些讀成「播放示範」「說明頁」，客人會直接跳過 ✓。
+           ⚠ 字級跟 🧩🪄 一起調（見上面「#wand, #toIds, #tourEntry」那條 ✓）。 -->
+      <button id="tourEntry" type="button" class="iconbtn"
+              title="操作導覽（跟著做一次就會用，約一分鐘）" aria-label="操作導覽">🦮</button>
       <!-- 浮層提示：貼在輸入區正下方，不佔高度（absolute），所以畫面不會晃動 -->
       <span class="toast" id="msg"></span>
     </div>
@@ -567,12 +606,25 @@ ${WECHAT_LINE}
 
 </div>
 
+<!-- ==================== 操作導覽的外殼（tools/tour/shell.html）====================
+     放在 .wrap **外面**：聚光燈／氣泡／選單都是 position:fixed ✓，
+     留在 .wrap 裡面只會被 460px 的版面牽著走（沒有好處，還多一個誤會的來源 ✗）。 -->
+${TOUR_SHELL}
+
 ${HOSTED_PRELUDE}
 <script>
 ${COMMON_SCRIPT}
 /* ============ 兩頁共用的頁面端程式碼（tools/glyph-common-page.js） ============ */
 ${commonPageJs}
 ${PAGE_JS}
+/* ============ 操作導覽：劇本資料（tools/tour/tours/*.tour 編譯）＋ 播放器 ============
+ * ⚠ 放在頁面程式碼**之後** ✓（不是之前 ✗）：check-pinxing.ts 會把主 script 的前半段
+ *   （引擎 ＋ 共用層 ＋ 這一頁的程式碼到「字庫與索引」為止）抽出來丟進 new Function() 裡跑，
+ *   那一段是**沒有 window 的**（Node 端）✓。播放器一開頭就是「(function (global) …)(window)」✗，
+ *   放進那一段就會得到「window is not defined」✓（實測踩過）。
+ *   頁面程式碼只在 .then()／事件裡用到播放器，那時整支 script 早就跑完了 ✓。 */
+${TOUR_SLOT}
+${TOUR_PLAYER}
 
 </script>
 
@@ -603,15 +655,38 @@ ${PAGE_JS}
 </html>
 `;
 
+/* ==================== 兩段式建置：先編譯劇本、再寫頁面 ====================
+ *
+ * ① `html` 目前還是「沒有導覽資料」的那一頁（資料位置是 `TOUR_SLOT` 佔位）。
+ *    拿它當 `templateHtml` 交給 `compileTours()`：劇本裡的選擇器會**逐個 #id 對照這一頁** ✓
+ *    （`#seq`／`#big`／`#seqChips`… 改名或打錯，在這裡就失敗 ✗——不會等到客人面前 ⚠ 找不到）。
+ * ② 資料只是 base64 與摘要，不含 id ✓，所以換進去之後 id 集合不變（第 ① 步的檢查仍然有效 ✓）。
+ */
+const compiled = compileTours({ ...tourConfig, templateHtml: html });
+if (compiled.errors.length) {
+  console.error("✗ 操作導覽的劇本有錯（見 tools/tour/tours/*.tour）：");
+  for (const e of compiled.errors) console.error("  " + e);
+  process.exit(1);
+}
+const TOUR_JS = tourDataJs(compiled.index, compiled.blobs);
+if (html.indexOf(TOUR_SLOT) < 0) {
+  console.error("✗ 產出頁裡找不到導覽資料的插入點（TOUR_SLOT 被改掉了？）");
+  process.exit(1);
+}
+const finalHtml = html.replace(TOUR_SLOT, TOUR_JS);
+
 mkdirSync(dirname(OUT_PATH), { recursive: true });
-assertPageScript(html);
-writeFileSync(OUT_PATH, html);
+assertPageScript(finalHtml);
+writeFileSync(OUT_PATH, finalHtml);
 console.log(`已寫出 ${OUT_PATH}` + (HOSTED ? "（宿主模式：字庫走 /lib.bin）" : "（離線單頁：字庫內嵌）"));
 console.log(`  ✓ 產出頁面的 script 語法正確`);
-console.log(`  網頁大小 ${(Buffer.byteLength(html) / 1048576).toFixed(2)} MB`);
+console.log(`  網頁大小 ${(Buffer.byteLength(finalHtml) / 1048576).toFixed(2)} MB`);
 console.log(`  內嵌：kage-engine ${(Buffer.byteLength(engineSrc) / 1024).toFixed(0)} KB、` +
   `tools 模組 ${(Buffer.byteLength(bundleSrc) / 1024).toFixed(1)} KB、` +
   (HOSTED
     ? `字形庫 **不內嵌**（改由 /lib.bin 一次 fetch，4.49 MB）`
     : `字形庫 base64 ${(libB64.length / 1048576).toFixed(2)} MB`));
+console.log(`  操作導覽：${compiled.index.length} 份劇本、` +
+  `${compiled.index.reduce((a, t) => a + t.scenes, 0)} 個場景 → ` +
+  `內嵌 ${(Buffer.byteLength(TOUR_JS) / 1024).toFixed(1)} KB`);
 

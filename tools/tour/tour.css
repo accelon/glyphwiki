@@ -1,0 +1,157 @@
+/* 操作導覽的外殼樣式（由 tools/build-pinxing.ts 內嵌）
+ * 來源：agent-norms/self-explaining-tour/shell.css，2026-10-25 **照這一頁的配色改寫**。
+ *
+ * 與上游的差別只有三類，都不是功能：
+ *   ① 顏色改用這一頁的變數（--card／--line／--acc／--fg／--mut ✓），不再自帶一套主題；
+ *   ② `min()` 改成「92vw ＋ max-width」（微信的舊內核不一定認得 `min()` ✗）；
+ *   ③ 手機的字級與內距小一級（這一頁是**手機豎版優先** ✓，見 pinxing.md〈介面〉）。
+ * ⚠ class 名稱與 id **不要改** ✗——`tools/tour/player.js` 只用 id 找元素 ✓。
+ * ⚠ 內容裡**不要出現**反引號與 `${` ✗（這個檔會被塞進 build-pinxing.ts 的樣板字串 ✓）。
+ */
+
+/* ---- 聚光燈：一片暗底挖出目標那個洞（pointer-events:none → 客人還是點得到它 ✓） ---- */
+#tourSpot {
+  position: fixed;
+  z-index: 89;
+  pointer-events: none;
+  border-radius: 8px;
+  border: 2px solid var(--acc, #5b8cff);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .55), 0 0 22px rgba(91, 140, 255, .5);
+}
+#tourSpot[hidden] { display: none; }
+
+/* ---- 說明氣泡：貼在底下（目標在下半部時翻到上面，見 player.js 的 layout()） ---- */
+#tourBubble {
+  position: fixed;
+  z-index: 90;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 92vw;
+  max-width: 780px;
+  max-height: 52vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--card, #15171b);
+  color: var(--fg, #e8ecf4);
+  border: 1px solid var(--acc, #5b8cff);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .75);
+  padding: 12px 14px 10px;
+  text-align: left;
+}
+#tourBubble[hidden] { display: none; }
+#tourBubble.paused { border-color: #ffc46b; }
+
+.tourHead { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.tourWhere { flex: 1 1 auto; font-size: 12px; color: var(--mut, #8b93a0); letter-spacing: .04em; }
+#tourTitle { font-size: 16px; font-weight: 700; color: var(--acc, #5b8cff); margin: 2px 0 6px; line-height: 1.4; }
+#tourText { font-size: 15px; line-height: 1.75; }
+#tourText p { margin: 0 0 7px; }
+#tourText p:last-child { margin-bottom: 0; }
+#tourText b { color: #ffc46b; }
+#tourText code {
+  background: #05070b;
+  border: 1px solid var(--line, #2a2e35);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 13.5px;
+}
+#tourNote { font-size: 12.5px; color: #ffc46b; margin: 7px 0 0; }
+#tourNote[hidden] { display: none; }
+
+.tourBtns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.tourProg { flex: 1 1 auto; font-size: 12px; color: var(--mut, #8b93a0); text-align: right; }
+#tourBubble button {
+  padding: 6px 12px;
+  border: 1px solid var(--line, #2a2e35);
+  border-radius: 7px;
+  background: #1d2027;
+  color: var(--fg, #e8ecf4);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+#tourBubble button:hover { border-color: var(--acc, #5b8cff); }
+#tourBubble button:disabled { opacity: .4; cursor: default; }
+#tourBubble button.primary {
+  background: var(--acc, #5b8cff);
+  color: #071326;
+  border-color: transparent;
+  font-weight: 700;
+}
+#tourBubble button[hidden] { display: none; }
+
+.tourClose {
+  background: transparent;
+  border: 0;
+  padding: 0 4px;
+  color: inherit;
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: .7;
+}
+.tourClose:hover { opacity: 1; }
+
+/* ---- 選單（兩份以上的劇本才用得到） ---- */
+#tourBackdrop { position: fixed; left: 0; top: 0; right: 0; bottom: 0; z-index: 86; background: rgba(0, 0, 0, .6); }
+#tourBackdrop[hidden], #tourBox[hidden] { display: none; }
+#tourBox {
+  position: fixed;
+  z-index: 87;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 92vw;
+  max-width: 560px;
+  max-height: 82vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: var(--card, #15171b);
+  color: var(--fg, #e8ecf4);
+  border: 1px solid var(--line, #2a2e35);
+  border-radius: 12px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, .7);
+  padding: 14px 16px 12px;
+  text-align: left;
+}
+.tourMenuHead { display: flex; align-items: center; gap: 8px; }
+.tourMenuHead h2 { margin: 0; flex: 1 1 auto; font-size: 17px; }
+.tourHint { font-size: 12.5px; color: var(--mut, #8b93a0); margin: 6px 0 0; line-height: 1.65; }
+.tourList { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.tourRow {
+  border: 1px solid var(--line, #2a2e35);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #1b1e24;
+}
+.tourName { font-size: 15px; font-weight: 700; color: var(--acc, #5b8cff); }
+.tourIntro { font-size: 12.5px; margin: 4px 0; line-height: 1.65; }
+.tourMeta { font-size: 11.5px; color: var(--mut, #8b93a0); }
+.tourActs { display: flex; gap: 8px; margin-top: 8px; }
+.tourActs button {
+  background: #1d2027;
+  color: var(--fg, #e8ecf4);
+  border: 1px solid var(--line, #2a2e35);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+.tourActs button:hover { border-color: var(--acc, #5b8cff); }
+.tourActs button.primary {
+  background: var(--acc, #5b8cff);
+  color: #071326;
+  border-color: transparent;
+  font-weight: 700;
+}
+
+/* 窄螢幕：字級與內距再收一級（氣泡不要吃掉整個畫面 ✓） */
+@media (max-width: 430px) {
+  #tourText { font-size: 14px; line-height: 1.7; }
+  #tourTitle { font-size: 15px; }
+  #tourBubble { padding: 10px 12px 8px; max-height: 56vh; }
+  #tourBubble button { padding: 5px 10px; font-size: 12.5px; }
+}

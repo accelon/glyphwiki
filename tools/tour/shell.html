@@ -1,0 +1,36 @@
+<!-- 操作導覽的外殼（由 tools/build-pinxing.ts 內嵌；來源 agent-norms/self-explaining-tour/shell.html）
+     ⚠ **ids 不要改** ✗：播放器（tools/tour/player.js）只用 id 找元素，
+       改一個名字就會變成「導覽一開就壞」✓。
+     ⚠ 這裡是 .html 檔、不是樣板字串，所以反引號沒關係 ✓；
+       但 `build-pinxing.ts` 是用樣板字串讀它進去的 → 內容裡**不要出現** `${` ✗。 -->
+
+<!-- 聚光燈（一片暗底上挖一個亮洞）＋ 說明氣泡 -->
+<div id="tourSpot" hidden></div>
+<div id="tourBubble" role="dialog" aria-live="polite" hidden>
+  <div class="tourHead">
+    <span class="tourWhere" id="tourWhere"></span>
+    <button type="button" class="tourClose" id="tourX" title="結束導覽（Esc）">✕</button>
+  </div>
+  <div id="tourTitle"></div>
+  <div id="tourText"></div>
+  <div id="tourNote" hidden></div>
+  <div class="tourBtns">
+    <button type="button" id="tourPrev" title="上一個場景（←）" hidden>← 上一場景</button>
+    <button type="button" id="tourReplay" title="重播本場景" hidden>重播</button>
+    <span class="tourProg" id="tourProg"></span>
+    <button type="button" id="tourDone" hidden>我做好了</button>
+    <button type="button" id="tourSkip" hidden>略過這步</button>
+    <button type="button" id="tourNext" class="primary" hidden>下一個場景 →</button>
+  </div>
+</div>
+
+<!-- 選單：兩份以上的劇本才用得到（一份就從入口直接播 ✓，見 player.js 的 start()） -->
+<div id="tourBackdrop" hidden></div>
+<div id="tourBox" role="dialog" aria-modal="true" aria-labelledby="tourMenuTitle" hidden>
+  <div class="tourMenuHead">
+    <h2 id="tourMenuTitle">操作導覽</h2>
+    <button id="tourClose" class="tourClose" title="關閉（Esc）">✕</button>
+  </div>
+  <p class="tourHint">跟著做一次就會用。每個場景做完會停住，由你決定要不要往下。</p>
+  <div id="tourList" class="tourList"></div>
+</div>

@@ -344,7 +344,7 @@ exe 內嵌 lib-cjk-all.bin.gz（2,327,989 bytes）
 
 | | 離線單頁 | 宿主模式（這一支） |
 | --- | --- | --- |
-| 產物 | `out/pinxing.html`（**3.52 MB**） | `pinxing-app/frontend/index.html`（**569 KB**） |
+| 產物 | `out/pinxing.html`（**3.58 MB**） | `pinxing-app/frontend/index.html`（**620 KB**） |
 | 字庫 | **以 base64 內嵌**（2.96 MB） | 改由 `/lib.bin` 一次 fetch |
 | 指令 | `bun run tools/build-pinxing.ts` | `bun run tools/build-pinxing.ts --hosted` |
 | 為什麼 | `file://` 直接開、微信內建瀏覽器也能跑 | 不重複搬 3.1 MB，且字庫換了不必重編前端 |

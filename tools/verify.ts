@@ -8,7 +8,7 @@
  *   而測試**可能還是綠的** ✗。把整條鏈收成一個指令，這個坑就封死了 ✓。
  *
  * 用法：
- *   bun run tools/verify.ts             全套（預設）：建庫 → 重建兩頁 → 8 支檢查 → 指標表
+ *   bun run tools/verify.ts             全套（預設）：建庫 → 重建兩頁 → 9 支檢查 → 指標表
  *   bun run tools/verify.ts --fast      跳過重建，只跑檢查（改測試或查現況時用）
  *   bun run tools/verify.ts --all       含舊消費者 **＋ 重量級步驟**（`check-structure` 152 秒）
  *   ⚠ 重量級步驟**預設不跑**：它們的價值不隨每次改動變動，沒必要每回都查
@@ -55,6 +55,7 @@ const STEPS: Step[] = [
   { name: "check-pinxing",       phase: "ship",   args: ["tools/check-pinxing.ts"],       note: "出貨①拼形檢視器（headless Edge）" },
   { name: "check-browser",       phase: "ship",   args: ["tools/check-browser.ts"],       note: "出貨②字集瀏覽頁（headless Edge）" },
   { name: "free-compose-test",   phase: "ship",   args: ["tools/free-compose-test.ts"],   note: "出貨③組字引擎" },
+  { name: "check-tour",          phase: "check",  args: ["tools/tour/build-tours.ts", "--check"], note: "操作導覽：劇本 vs 產出頁內嵌的資料（改了 .tour 忘了重建就擋下來）" },
   { name: "check-lib-compat",    phase: "check",  args: ["tools/check-lib-compat.ts"],    note: "字庫格式、v1～v6 相容、家族範圍、IDC 不當字" },
   { name: "check-ids-glyph",     phase: "check",  args: ["tools/check-ids-glyph.ts"],     note: "IDS → 字形（分框算術、**框不重疊**、畫得出來、壞 IDS 誠實）——`glyph-by-ids.md` 的主模塊" },
   { name: "check-component-boxes", phase: "check", args: ["tools/check-component-boxes.ts"], note: "部件身分／順序／緊框（點陣當第二意見）" },

@@ -1309,14 +1309,403 @@ function setWand(seqs, keepIfCurrent) {
   showEl(b, WAND.seqs.length > 0);
 }
 
+/* ==================== 魔術棒過場：從醜形走到美形 ====================
+ *
+ * 師父 2026-10-23：按 🪄 套用建議序時，大字**不要瞬間跳過去**——
+ * 要把「醜」到「美」的過程演出來。
+ *
+ * 做法：把舊形與新形都拆成**葉字形單元**（每個單元＝一次的引用字形，
+ * 帶著它在根座標的完整多邊形），再用 rAF 把每個單元的**墨跡框**從舊位置
+ * 移到新位置；形狀真的不同時才整組交叉淡入淡出。
+ *
+ * ⚠ 為什麼**不逐點內插多邊形**（示範頁那樣 ✓）：點內插會讓小輪廓
+ *   （勾、點）在途中漂開，看起來像「破碎」✗；輪廓數不同時還可能把
+ *   實心筆劃內插成中空 ✗。這裡只做**仿射變換 ＋ 整組透明度的交叉淡入**：
+ *     - 同一個字形（同一份 kage 多邊形）＝只移動／縮放，筆劃永遠完整 ✓
+ *     - 不同字形＝兩份**完整**的多邊形交叉淡入，任何一刻都不會破、不會鏤空 ✓
+ *   ⚠ 群組的 `opacity` 是「整組先合成再淡」✓（不是逐 path 淡 ✗）——
+ *     同一個單元裡重疊的筆劃才不會在淡化時露出接縫 ✓。
+ *
+ * ⚠ 只有 `window.__SYNC__`（驗收探針）不播：探針要立刻讀 #big 的最終 DOM ✓。
+ * ⚠ `render()` 一被呼叫就取消過場（打字、換字）✓；過場結束才補回框層 ✓。
+ */
+var MORPH = null;
+var MORPH_DUR = 950;
+var MORPH_STEP = 36;
+
+function cancelMorph(restore) {
+  if (!MORPH) return;
+  if (MORPH.raf) cancelAnimationFrame(MORPH.raf);
+  MORPH = null;
+  if (restore && MAIN) { try { renderBig(false); } catch (e) { } }
+}
+
+/** 把一個 `Polygons` 的輪廓寫成 path（與 kage 的 generateSVG 同一條規則 ✓） */
+function morphPolyD(p) {
+  var a = p.array;
+  if (!a || a.length < 2) return "";
+  var s = "M " + a[0].x + "," + a[0].y + " ";
+  var mode = "L";
+  for (var j = 1; j < a.length; j++) {
+    if (a[j].off === 1) { s += "Q "; mode = "Q"; }
+    else if (mode === "Q" && a[j - 1].off !== 1) s += "L ";
+    else if (mode === "L" && j === 1) s += "L ";
+    s += a[j].x + "," + a[j].y + " ";
+  }
+  return s + "Z";
+}
+
+/** 字形 → 葉單元（每一筆的多邊形，按葉字形分組；座標已是根座標 ✓） */
+function morphUnitsOf(lib, idx) {
+  var kage = newKage();
+  fillKageIn(kage, lib, idx);
+  var data = toKageData(lib.glyphs[idx], lib);
+  var per = kage.makeGlyph3(data);
+  var owners = [];
+  (function walk(gi, aff) {
+    var g = lib.glyphs[gi];
+    if (!g) return;
+    for (var i = 0; i < g.strokes.length; i++) {
+      var s = g.strokes[i];
+      if (s.kind === 99 && s.ref !== null) {
+        var b = s.box || [0, 0, 200, 200];
+        walk(s.ref, {
+          a: aff.a * (b[2] - b[0]) / 200,
+          d: aff.d * (b[3] - b[1]) / 200,
+          e: aff.a * b[0] + aff.e,
+          f: aff.d * b[1] + aff.f
+        });
+      } else {
+        owners.push({ gi: gi, aff: aff });
+      }
+    }
+  })(idx, { a: 1, d: 1, e: 0, f: 0 });
+  if (owners.length !== per.length) return null;    /* 結構不認得 → 不播 ✓ */
+
+  var units = [], cur = null;
+  for (var i = 0; i < owners.length; i++) {
+    var o = owners[i];
+    if (!cur || cur.gi !== o.gi || cur.aff.a !== o.aff.a || cur.aff.d !== o.aff.d ||
+        cur.aff.e !== o.aff.e || cur.aff.f !== o.aff.f) {
+      cur = { gi: o.gi, aff: o.aff, cp: codePointOf(lib, o.gi), polys: [] };
+      units.push(cur);
+    }
+    /* `per[i]` 是「一筆」的 Polygons；這裡攤平成輪廓（Polygon）陣列 ✓ */
+    for (var ci = 0; ci < per[i].array.length; ci++) cur.polys.push(per[i].array[ci]);
+  }
+
+  for (var u = 0; u < units.length; u++) {
+    var x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9;
+    for (var p = 0; p < units[u].polys.length; p++) {
+      var poly = units[u].polys[p].array;
+      for (var k = 0; k < poly.length; k++) {
+        var q = poly[k];
+        if (q.x < x1) x1 = q.x;
+        if (q.x > x2) x2 = q.x;
+        if (q.y < y1) y1 = q.y;
+        if (q.y > y2) y2 = q.y;
+      }
+    }
+    units[u].box = [x1, y1, x2, y2];
+    units[u].cx = (x1 + x2) / 2;
+    units[u].cy = (y1 + y2) / 2;
+  }
+  return units;
+}
+
+/** 輪廓數、點數一一對應？（＝可以做逐點內插 ✓） */
+function morphTopo(a, b) {
+  if (a.polys.length !== b.polys.length) return false;
+  for (var i = 0; i < a.polys.length; i++) {
+    var pa = a.polys[i].array, pb = b.polys[i].array;
+    if (pa.length !== pb.length) return false;
+    for (var j = 0; j < pa.length; j++) if (pa[j].off === 1 || pb[j].off === 1) return false;
+  }
+  return true;
+}
+
+function morphArea(poly) {
+  var a = poly.array, s = 0;
+  for (var i = 0; i < a.length; i++) {
+    var p = a[i], q = a[(i + 1) % a.length];
+    s += p.x * q.y - q.x * p.y;
+  }
+  return s / 2;
+}
+
+/** 以墨跡框正規化後的最大點距（0＝同形 ✓） */
+function morphDiff(a, b) {
+  var ba = a.box, bb = b.box;
+  var wa = Math.max(1e-6, ba[2] - ba[0]), ha = Math.max(1e-6, ba[3] - ba[1]);
+  var wb = Math.max(1e-6, bb[2] - bb[0]), hb = Math.max(1e-6, bb[3] - bb[1]);
+  var max = 0;
+  for (var i = 0; i < a.polys.length; i++) {
+    var pa = a.polys[i].array, pb = b.polys[i].array;
+    for (var j = 0; j < pa.length; j++) {
+      var dx = (pa[j].x - ba[0]) / wa - (pb[j].x - bb[0]) / wb;
+      var dy = (pa[j].y - ba[1]) / ha - (pb[j].y - bb[1]) / hb;
+      var d = Math.hypot(dx, dy);
+      if (d > max) max = d;
+    }
+  }
+  return max;
+}
+
+/** 夠近、同拓撲、同繞向 → 逐點內插（筆劃不會拆開 ✓）；
+ *  形狀差太多（例 木/火的異體）→ 退回「移動＋整組交叉淡入」✓。 */
+function morphCanPoint(a, b) {
+  if (!morphTopo(a, b)) return false;
+  if (morphDiff(a, b) > 0.24) return false;
+  for (var i = 0; i < a.polys.length; i++) {
+    if (morphArea(a.polys[i]) * morphArea(b.polys[i]) <= 0) return false;
+  }
+  return true;
+}
+
+/** 同一筆的兩條輪廓 → 逐點內插的 path ✓ */
+function morphContourD(A, B, t) {
+  var s = "M";
+  for (var j = 0; j < A.length; j++) {
+    var x = A[j].x + (B[j].x - A[j].x) * t;
+    var y = A[j].y + (B[j].y - A[j].y) * t;
+    s += (j ? "L" : "") + x.toFixed(1) + "," + y.toFixed(1);
+  }
+  return s + "Z";
+}
+
+/** 盒面積 */
+function morphBoxArea(b) { return Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]); }
+
+/** b 是否幾乎整個落在 a 裡面？（例：`臼` 在 `𦥯` 的外框裡 ✓） */
+function morphContains(a, b) {
+  var ix = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+  var iy = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+  if (ix <= 0 || iy <= 0) return false;
+  var ab = morphBoxArea(b);
+  return ab > 0 && (ix * iy) >= ab * 0.92;
+}
+
+/** 把「一個包住另一個」的葉單元併成**同一個部件** ✓。
+ *  ⚠ 這是 `𦥯` 那種「複合部件」的關鍵：外框與裡面的 `臼` 是兩個葉，
+ *    可是它們必須**一起**移動／一起淡化；各自內插會在接縫處出現碎片 ✗。
+ *  ⚠ 只用「包含」不用「重疊」：`水`／`火` 在 B 會重疊，但它們是兩個部件 ✗。 */
+function morphComponents(units) {
+  var n = units.length, par = [];
+  for (var i = 0; i < n; i++) par[i] = i;
+  function find(x) { while (par[x] !== x) { par[x] = par[par[x]]; x = par[x]; } return x; }
+  function uni(a, b) { a = find(a); b = find(b); if (a !== b) par[b] = a; }
+  for (var i2 = 0; i2 < n; i2++) {
+    for (var j2 = i2 + 1; j2 < n; j2++) {
+      if (morphContains(units[i2].box, units[j2].box) || morphContains(units[j2].box, units[i2].box)) uni(i2, j2);
+    }
+  }
+  var buckets = {};
+  for (var k = 0; k < n; k++) { var r = find(k); (buckets[r] || (buckets[r] = [])).push(units[k]); }
+  var out = [];
+  for (var key in buckets) {
+    var gs = buckets[key], polys = [], box = [1e9, 1e9, -1e9, -1e9], cps = [];
+    for (var g = 0; g < gs.length; g++) {
+      for (var p = 0; p < gs[g].polys.length; p++) polys.push(gs[g].polys[p]);
+      var b = gs[g].box;
+      if (b[0] < box[0]) box[0] = b[0];
+      if (b[1] < box[1]) box[1] = b[1];
+      if (b[2] > box[2]) box[2] = b[2];
+      if (b[3] > box[3]) box[3] = b[3];
+      cps.push(gs[g].cp);
+    }
+    cps.sort(function (a, b) { return a - b; });
+    out.push({
+      polys: polys, box: box, cps: cps, cp: gs[0].cp, multi: gs.length > 1,
+      cx: (box[0] + box[2]) / 2, cy: (box[1] + box[3]) / 2
+    });
+  }
+  return out;
+}
+
+/** 舊部件 → 新部件：先同「碼位多重集」（含異體）、再按距離／面積貪婪配對 ✓ */
+function morphMatch(A, B) {
+  var cand = [];
+  for (var i = 0; i < A.length; i++) {
+    for (var j = 0; j < B.length; j++) {
+      var ka = A[i].cps ? A[i].cps.join(",") : String(A[i].cp);
+      var kb = B[j].cps ? B[j].cps.join(",") : String(B[j].cp);
+      var sameCp = !!(ka && kb && ka === kb);
+      if (ka && kb && !sameCp) continue;
+      var d = Math.hypot(A[i].cx - B[j].cx, A[i].cy - B[j].cy);
+      var aa = Math.max(1, morphBoxArea(A[i].box));
+      var ba = Math.max(1, morphBoxArea(B[j].box));
+      var cost = d + Math.abs(Math.log(aa / ba)) * 12;
+      if (!sameCp && cost > 60) continue;       /* 不同部件、又離很遠 → 不硬配 ✓ */
+      cand.push({ i: i, j: j, cost: cost });
+    }
+  }
+  cand.sort(function (x, y) { return x.cost - y.cost; });
+  var usedA = {}, usedB = {}, pairs = [];
+  for (var c = 0; c < cand.length; c++) {
+    var p = cand[c];
+    if (usedA[p.i] || usedB[p.j]) continue;
+    usedA[p.i] = 1;
+    usedB[p.j] = 1;
+    pairs.push({ a: A[p.i], b: B[p.j] });
+  }
+  for (var x = 0; x < A.length; x++) if (!usedA[x]) pairs.push({ a: A[x], b: null });
+  for (var y = 0; y < B.length; y++) if (!usedB[y]) pairs.push({ a: null, b: B[y] });
+  return pairs;
+}
+
+function morphMap(a, b) {
+  var aw = Math.max(1e-6, a[2] - a[0]), ah = Math.max(1e-6, a[3] - a[1]);
+  var bw = Math.max(1e-6, b[2] - b[0]), bh = Math.max(1e-6, b[3] - b[1]);
+  var sx = bw / aw, sy = bh / ah;
+  return { sx: sx, sy: sy, e: b[0] - sx * a[0], f: b[1] - sy * a[1] };
+}
+function morphInv(m) { return { sx: 1 / m.sx, sy: 1 / m.sy, e: -m.e / m.sx, f: -m.f / m.sy }; }
+function morphTr(m) {
+  return "translate(" + m.e.toFixed(2) + " " + m.f.toFixed(2) + ") scale(" +
+    m.sx.toFixed(4) + " " + m.sy.toFixed(4) + ")";
+}
+function morphLerp(a, b, t) {
+  return { sx: a.sx + (b.sx - a.sx) * t, sy: a.sy + (b.sy - a.sy) * t,
+           e: a.e + (b.e - a.e) * t, f: a.f + (b.f - a.f) * t };
+}
+function morphSmooth(x) { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
+function morphEase(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function morphPathsHtml(u) {
+  var s = "";
+  for (var i = 0; i < u.polys.length; i++) {
+    var d = morphPolyD(u.polys[i]);
+    if (d) s += '<path d="' + d + '" fill="currentColor"/>';
+  }
+  return s;
+}
+
+/** 演一次「舊形 → 新形」；失敗就安靜地不播 ✓（寧可瞬跳，也不要破圖 ✗）。 */
+function playMorph(fromLib, fromIdx, toLib, toIdx) {
+  if (window.__SYNC__) return;
+  var A = null, B = null;
+  try { A = morphComponents(morphUnitsOf(fromLib, fromIdx)); B = morphComponents(morphUnitsOf(toLib, toIdx)); }
+  catch (e) { return; }
+  if (!A || !B || !A.length || !B.length) return;
+
+  cancelMorph(false);
+  var pairs = morphMatch(A, B);
+  /* 由左而右依序出發（視覺上有「一筆一筆搬過去」的感覺 ✓） */
+  pairs.sort(function (p, q) {
+    var px = p.a ? p.a.cx : 1e9, qx = q.a ? q.a.cx : 1e9;
+    return px - qx;
+  });
+
+  var ID = { sx: 1, sy: 1, e: 0, f: 0 };
+  var html = ['<svg class="gly morphglyph" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">'];
+  var jobs = [];
+  for (var i = 0; i < pairs.length; i++) {
+    var pr = pairs[i], tag = "mu" + i, delay = i * MORPH_STEP;
+    var m = pr.a && pr.b ? morphMap(pr.a.box, pr.b.box) : ID;
+    /* 複合部件（例 𦥯＝外框＋臼）**整組**處理：不逐點內插（會在接縫處出現碎片 ✗） */
+    var multi = !!(pr.a && pr.b && (pr.a.multi || pr.b.multi));
+    /* 交叉淡入的起訖（eased e）：都在最後 15% ✓——複合部件先整組仿射到新框，
+       最後才用「舊形淡出、把下面的新形揭出來」收尾（不會全程灰影 ✓） */
+    var f0 = multi ? 0.90 : 0.97, f1 = 1.0;
+    /* ① 單一部件、同拓撲、夠近：逐點內插（筆劃完整 ✓、不會有雙影 ✓） */
+    if (pr.a && pr.b && !multi && morphCanPoint(pr.a, pr.b)) {
+      html.push('<g class="' + tag + 'p" opacity="1">' + morphPathsHtml(pr.a) + '</g>');
+      jobs.push({ cls: tag + "p", point: true, a: pr.a.polys, b: pr.b.polys, delay: delay });
+      continue;
+    }
+    /* ①-b 複合部件（例 𦥯＝外框＋臼）：整組只做**仿射**——不逐點內插（接縫會出現碎片 ✗）。
+       新形畫在下面、舊形在上面；最後 15% 舊形淡出＝把新形揭出來 ✓。 */
+    /* ② 形狀差太多、複合部件或只有一邊：
+          **新形先畫（在下面）、舊形後畫（在上面）**；舊形淡出＝把新形「揭」出來 ✓。
+          兩份都是完整多邊形；新形不透明，所以不會出現 50% 的灰影 ✓。 */
+    if (pr.b) {
+      var paired = !!pr.a;
+      html.push('<g class="' + tag + 'b" opacity="0">' + morphPathsHtml(pr.b) + '</g>');
+      jobs.push({ cls: tag + "b", fresh: true, inv: morphInv(m), paired: paired, f0: f0, f1: f1, delay: delay });
+    }
+    if (pr.a) {
+      html.push('<g class="' + tag + 'a" opacity="1">' + morphPathsHtml(pr.a) + '</g>');
+      jobs.push({ cls: tag + "a", old: true, m: m, fade: true, f0: f0, f1: f1, delay: delay });
+    }
+  }
+  html.push("</svg>");
+
+  var host = $("big");
+  host.innerHTML = html.join("");
+  var svg = host.firstChild;
+  if (!svg) return;
+  for (var j = 0; j < jobs.length; j++) {
+    jobs[j].el = svg.querySelector("." + jobs[j].cls);
+    if (jobs[j].point && jobs[j].el) jobs[j].els = jobs[j].el.querySelectorAll("path");
+  }
+  for (var j2 = 0; j2 < jobs.length; j2++) {
+    if (!jobs[j2].el) return;                                   /* 不齊全 → 不播 ✓ */
+    if (jobs[j2].point && jobs[j2].els.length !== jobs[j2].a.length) return;
+  }
+
+  var token = {};
+  MORPH = { token: token, raf: 0 };
+  var t0 = performance.now();
+
+  function frame(now) {
+    if (!MORPH || MORPH.token !== token) return;
+    if (!svg.parentNode) { MORPH = null; return; }      /* 被別的重畫換掉了 ✓ */
+    var elapsed = now - t0, all = true;
+    for (var j = 0; j < jobs.length; j++) {
+      var g = jobs[j];
+      var t = (elapsed - g.delay) / MORPH_DUR;
+      if (t < 0) { all = false; continue; }
+      if (t > 1) t = 1;
+      var e = morphEase(t);
+      if (g.point) {
+        for (var ci = 0; ci < g.els.length; ci++) {
+          g.els[ci].setAttribute("d", morphContourD(g.a[ci].array, g.b[ci].array, e));
+        }
+      } else if (g.old) {
+        g.el.setAttribute("transform", morphTr(morphLerp(ID, g.m, e)));
+        if (g.fade) g.el.setAttribute("opacity", (1 - morphSmooth((t - g.f0) / (g.f1 - g.f0))).toFixed(3));
+      } else {
+        g.el.setAttribute("transform", morphTr(morphLerp(g.inv, ID, e)));
+        /* 新形在最後「揭開」之前**完全不出現** ✓——太早顯示會在舊形旁邊多出一份
+           （`⿰木⿳金⿰水火土` 的木／火就是這樣「新舊重覆」✗）。
+           到了 f0 才一次顯示在舊形下面（舊形還是不透明，所以看不出來），
+           接著舊形淡出＝把新形揭出來 ✓。 */
+        g.el.setAttribute("opacity",
+          g.paired ? (t >= g.f0 ? "1" : "0")
+                   : morphSmooth((t - 0.15) / 0.55).toFixed(3));
+      }
+      if (t < 1) all = false;
+    }
+    if (all) {
+      MORPH = null;
+      try { renderBig(false); } catch (e2) { }
+      return;
+    }
+    MORPH.raf = requestAnimationFrame(frame);
+  }
+  MORPH.raf = requestAnimationFrame(frame);
+}
+
+/** 套用一個拼形序，並從「現在的大字」演到「新的形」✓。
+ *  ⚠ 魔術棒與建議格（#sugStage／#sugRow／推薦文字）都走同一條 ✓——
+ *    這樣「客人點推薦」與「按 🪄」看到的過場才會一致 ✓。 */
+function applySeqWithMorph(s) {
+  if (MORPH) cancelMorph(true);      /* 上一個過場還沒完 → 先停在它的終點 ✓（不要從半途再接 ✗） */
+  var from = (MAIN && !window.__SYNC__) ? { lib: MAIN.lib, idx: MAIN.idx } : null;
+  $("seq").value = s;
+  lastLabelMode = null;
+  render();
+  if (from && MAIN && (from.lib !== MAIN.lib || from.idx !== MAIN.idx)) {
+    try { playMorph(from.lib, from.idx, MAIN.lib, MAIN.idx); } catch (e) { }
+  }
+}
+
 /** 點魔術棒：把**下一個**建議的拼形序填進輸入區並重畫 ✓（再點換下一個 ✓）。 */
 function wandNext() {
   if (!WAND.seqs.length) return;
   WAND.ix = (WAND.ix + 1) % WAND.seqs.length;
   var s = WAND.seqs[WAND.ix];
-  $("seq").value = s;
-  lastLabelMode = null;
-  render();
+  applySeqWithMorph(s);
   toast("已套用建議的拼形序「" + s + "」✓（再點 🪄 換下一個 ✓）", "ok");
 }
 
@@ -2182,6 +2571,7 @@ function scheduleRender() {
  *  **傳進 `evalInput()` 的是原始輸入**：`木 /` 這種寫法的運算子要留給檢字語法，
  *  字元本身在裡面另外濾掉空白再判讀。 */
 function render() {
+  cancelMorph(false);     /* 打字／換字／重新求值 → 舊的過場立刻停 ✓（見 playMorph ✓） */
   saveSeqText();          /* ★ 師父 2026-10-16：輸入區的文字**當場記住** ✓（見 saveSeqText ✓） */
   var st = evalInput($("seq").value);
   lastEval = st;
@@ -2708,8 +3098,7 @@ function bind() {
   function pickSuggestion(target) {
     var b = target && target.closest ? target.closest("[data-sug]") : null;
     if (!b) return;
-    $("seq").value = b.getAttribute("data-sug");
-    render();
+    applySeqWithMorph(b.getAttribute("data-sug"));   /* 與 🪄 同一條過場 ✓ */
     $("seq").focus();
   }
   if ($("sugStage")) $("sugStage").addEventListener("click", function (e) { pickSuggestion(e.target); });
@@ -2906,6 +3295,114 @@ function compKidsByName(gi) {
   return out;
 }
 
+/* ============================ 操作導覽（2026-10-25） ============================
+ *
+ * 播放器是 `tools/tour/player.js`（純 ES5，掛在 `window.SelfTour`）✓；
+ * 劇本在 `tools/tour/tours/*.tour`，建置期編成巨集內嵌（`TOUR_INDEX`／`TOUR_BLOBS`）✓。
+ * 這一頁只負責**轉接層**（播放器不認得這一頁的狀態 ✓）＋ **入口**：
+ *
+ *   set("box" | "wscale" | "mid")   改設定——一律**走客人真的會走的那條路**（點按鈕／拉滑桿 ✓），
+ *                                   不是直接改全域變數 ✗：這樣「導覽裡看到的」與「自己操作的」永遠一樣 ✓。
+ *   call("mark")                    記下導覽前的樣子（輸入區、字框、筆畫粗細、中間部件 ✓）
+ *   call("restore")                 還原 ✓——**導覽結束不可以把客人留在改過的狀態** ✓
+ *                                   （skill 的硬規則：tour must not leave the user in a changed state ✓）
+ *   state()                         `api:` 條件要讀的快照 ✓
+ *
+ * ⚠ `set` 認不得的鍵**一定要回 false** ✓，播放器才會顯示「不認得的設定」✗——
+ *   安靜地什麼都不做是客人最難查的一種 ✓（編譯期已有白名單，這裡是第二道 ✓）。
+ */
+var TOUR_READY = false;            /* 字庫解完、播放器也 init 了才 true ✓ */
+var TOUR_BASE = null;              /* 導覽開始前的樣子（`呼叫 mark` 時記下來 ✓） */
+
+function tourSet(key, value) {
+  var v = String(value == null ? "" : value);
+  if (key === "box") {
+    /* 「字框」是**兩態**（顯／不顯 ✓，見 applyBoxMode）：要的值已經在畫面上就不要白點一下 ✓ */
+    var wantOff = (v === "none" || v === "隱" || v === "off" || v === "0");
+    if ((BOXMODE === "none") !== wantOff) $("boxMode").click();
+    return true;
+  }
+  if (key === "mid") {
+    var on = !(v === "off" || v === "0" || v === "false" || v === "關");
+    if (!!SHOW_MID !== on) $("showMid").click();
+    return true;
+  }
+  if (key === "wscale") {
+    var pct = Number(v);
+    if (!(pct >= 40 && pct <= 220)) return false;       /* 滑桿的範圍（見 build 的 min/max ✓） */
+    $("wscale").value = String(pct);
+    $("wscale").dispatchEvent(new Event("input"));      /* 走真的那條路：清快取 ＋ 重畫 ✓ */
+    return true;
+  }
+  return false;
+}
+
+function tourCall(name) {
+  if (name === "mark") {
+    TOUR_BASE = {
+      seq: $("seq").value,
+      box: BOXMODE === "none" ? "none" : "tight",
+      wscale: Number($("wscale").value),
+      mid: !!SHOW_MID
+    };
+    return true;
+  }
+  if (name === "restore") {
+    var b = TOUR_BASE;
+    if (!b) return false;
+    TOUR_BASE = null;
+    if ($("seq").value !== b.seq) {
+      $("seq").value = b.seq;
+      ACTIVE_BOX = -1;
+      render();
+    }
+    tourSet("box", b.box);
+    tourSet("mid", b.mid ? "on" : "off");
+    tourSet("wscale", b.wscale);
+    return true;
+  }
+  return false;
+}
+
+function tourState() {
+  var st = lastEval || {};
+  return {
+    ready: !!LIB,
+    seq: $("seq").value,
+    mode: st.mode || "",
+    box: BOXMODE,
+    mid: SHOW_MID ? "on" : "off",
+    cands: SEARCH ? SEARCH.cps.length : 0,
+    chips: $("seqChips").querySelectorAll(".mini.comp").length,
+    big: MAIN ? 1 : 0,
+    composed: isComposed() ? 1 : 0
+  };
+}
+
+/** 入口（`#tourEntry`：輸入區右邊、存檔旁邊的 🦮 ✓）：**隨時可以按** ✓——
+ *  字庫還沒解完就按下去，要講清楚「還在載入」✗ 不要安靜地沒反應 ✓（那是客人最沒辦法自救的一種）。 */
+function bindTourEntry() {
+  var b = $("tourEntry");
+  if (!b) return;
+  function go(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (!TOUR_READY || !window.SelfTour) {
+      toast("字庫還在解壓，請稍等一下再按 ✓", "warn");
+      return;
+    }
+    /* ★ 導覽前的樣子**在這裡記下來** ✓（結尾的 `呼叫 restore` 才有東西可以還原 ✓）。
+       ⚠ 已經記過就不要覆蓋 ✗：中途退出、再開一次時，要還原的是**最早**那個樣子 ✓。
+       劇本的第一個場景也有 `呼叫 mark`（給「不是從入口進來」的情況當保險 ✓，例如
+       播放器被程式直接呼叫、或客人從選單重播 ✓）。 */
+    if (!TOUR_BASE) tourCall("mark");
+    window.SelfTour.start();
+  }
+  b.addEventListener("click", go);
+  b.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") go(e);
+  });
+}
+
 /* ============================ 開頁 ============================ */
 /* ★ 2026-10-16：解壓走**共用層的 `gunzipBytes()`** ✓——內建的 `DecompressionStream`
    不是每個瀏覽器都有 ✗（微信內建的就沒有 ✓），沒有它整頁等於打不開 ✗。
@@ -2963,6 +3460,9 @@ function cpFromQuery() {
 
 var t0 = performance.now();
 
+/* 入口先綁起來（字庫還沒解完也可以按，按了會說「等一下」✓——見 `bindTourEntry()` ✓）。 */
+bindTourEntry();
+
 loadLibBytes()
   .then(function (bin) {
     LIB = decodeLibrary(bin);
@@ -2983,6 +3483,38 @@ loadLibBytes()
       if (glyphIndexOf(g) !== undefined) $("seq").value = g;
     }
     render();
+
+    /* ★ 2026-10-25：**操作導覽** ✓——資料是建置期內嵌的 `TOUR_INDEX`／`TOUR_BLOBS`
+          （`typeof` 是保險：舊的產出頁沒有那兩個全域，不該因此讓整頁掛掉 ✗）。
+        ⚠ init **只呼叫一次** ✓（重複 init 會讓每一顆按鈕都點兩下 ✗，見 player.js 的 init ✓）。 */
+    if (window.SelfTour && typeof TOUR_INDEX !== "undefined" && typeof TOUR_BLOBS !== "undefined") {
+      try {
+        window.SelfTour.init(
+          { set: tourSet, call: tourCall, state: tourState },
+          { index: TOUR_INDEX, blobs: TOUR_BLOBS },
+          {
+            appName: "剎那拼形",
+            storagePrefix: "pinxing.tour",
+            modalIds: [],
+            /* 結束畫面：用**這一頁的話**（入口是一隻狗，不是一個寫著「操作導覽」的按鈕 ✓）——
+               播放器的預設台詞是給別的 App 用的，這裡自己講一次 ✓。 */
+            finishHtml: "導覽到這裡結束 ✓ 想再看一次，按輸入區右邊的 🦮；" +
+              "想自己試，直接在**拼形序列**打一個字就行。"
+          }
+        );
+        TOUR_READY = true;
+        /* 第一次打開、輸入區還是空的：**提一句就好** ✓（不打擾；一打字就會被 render() 收掉 ✓）。
+           判斷用 `pinxing.tour.welcome` 有沒有記錄（播過一次就會有 ✓）。 */
+        try {
+          if (!localStorage.getItem("pinxing.tour.welcome") && !$("seq").value) {
+            toast("第一次用？按輸入區右邊的 🦮 一分鐘走一遍 ✓", "ok");
+          }
+        } catch (e1) { }
+      } catch (e2) {
+        /* 導覽壞掉不可以拖垮整頁 ✓（字庫、拼形都還是好的）——只記在 console ✓。 */
+        if (window.console && console.error) console.error("[導覽] 初始化失敗：" + (e2 && e2.message));
+      }
+    }
 
     /* 給 headless 驗收讀的（見 tools/check-pinxing.ts） */
     window.__READY__ = {

@@ -65,7 +65,7 @@ bun run verify --list   # 列出步驟（含被跳過的）
 
 > ⚠ **這一節原本與實際狀態不一致，已於 2026-10-16 更正。**
 > 舊文寫「只追蹤根目錄與 `novel/` 的 `*.md`」，但實際上
-> **`tools/`（151 個檔）與 `package.json` 早就在版控裡**——那是有意的：
+> **`tools/`（162 個檔）與 `package.json` 早就在版控裡**——那是有意的：
 > 專案吃過「**`tools` 沒 commit 就會失去**」的虧（見
 > [`progress/20261015交接.md`](progress/20261015交接.md)）。**程式碼是要追蹤的。**
 
@@ -74,7 +74,7 @@ bun run verify --list   # 列出步驟（含被跳過的）
 | 類別 | 項目 |
 | --- | --- |
 | 文件 | 根目錄 `*.md`、`novel/*.md`、`progress/*.md` |
-| 程式碼 | `tools/`（151 個檔）、`package.json` |
+| 程式碼 | `tools/`（162 個檔）、`package.json` |
 | **Go 模組** | **`gocore/`**（字庫解碼與查詢、全庫差分測試） |
 | **Wails3 應用** | **`pinxing-app/`**（原始碼 ＋ `build/` 的 manifest／`info.json`／圖示等**來源資產**） |
 | 圖片 | 根目錄的 `*.png`（`xue.png`、`elements.png`、`money.png`…） |

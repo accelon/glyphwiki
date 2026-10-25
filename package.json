@@ -5,6 +5,8 @@
   "scripts": {
     "build-db": "bun run tools/build-db.ts",
     "q": "bun run tools/q.ts",
+    "tour": "bun run tools/tour/build-tours.ts",
+    "tour:check": "bun run tools/tour/build-tours.ts --check",
     "verify": "bun run tools/verify.ts"
   }
 }
